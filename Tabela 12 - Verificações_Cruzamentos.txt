@@ -1,0 +1,56 @@
+Tabela 12 - Dimensões Selecionadas Referentes à Consistência no Cruzamento dos Dados
+Dimensão	Descrição da Dimensão	Análise (cruzamento)
+D2_00044	Igualdade das receitas arrecadadas na MSC de encerramento e no Anexo I-C da DCA	DCA X MSC Encerramento
+D2_00046	Igualdade das receitas com tributos municipais na MSC de encerramento e no Anexo I-C da DCA	DCA X MSC Encerramento
+D2_00048	Igualdade das receitas municipais com transferências constitucionais na MSC de encerramento e no Anexo I-C da DCA	DCA X MSC Encerramento
+D2_00049	Igualdade das Despesas Orçamentárias empenhadas, liquidadas e pagas na MSC de encerramento e no Anexo I-D da DCA	DCA X MSC Encerramento
+D2_00050	Igualdade dos Restos a Pagar processados e não processados na MSC de encerramento e no Anexo I-D da DCA	DCA X MSC Encerramento
+D2_00058	Igualdade entre os valores informados de Variação Patrimonial Aumentativa com FUNDEB no Anexo I-HI da DCA e na MSC de encerramento	DCA X MSC Encerramento
+D2_00069	Igualdade entre as despesas exceto-intra na função 09 (Prev. Social) entre a MSC de encerramento e o Anexo I-E da DCA	DCA X MSC Encerramento
+D2_00070	Igualdade entre as despesas exceto-intra na função 10 (Saúde) entre a MSC de encerramento e o Anexo I-E da DCA	DCA X MSC Encerramento
+D2_00071	Igualdade entre as despesas exceto-intra na função 12 (Educação) entre a MSC de encerramento e o Anexo I-E da DCA	DCA X MSC Encerramento
+D2_00072	Igualdade entre as despesas exceto-intra nas funções diferentes de 09, 10 e 12 entre a MSC de encerramento e o Anexo I-E da DCA	DCA X MSC Encerramento
+D2_00073	Igualdade entre as despesas intraorçamentárias com detalhamento de função/subfunção entre a MSC de encerramento e o Anexo I-E da DCA	DCA X MSC Encerramento
+D2_00074	Igualdade entre os saldos finais de RPP pagos e RPNP pagos na MSC de Encerramento e no Anexo I-F da DCA	DCA X MSC Encerramento
+D3_00001	Avalia a correta informação do déficit ou superávit orçamentário no Anexo 01 do RREO	RREO
+D3_00002	Igualdade da Informação de despesas orçamentárias entre os anexos 1 e 2 do RREO	RREO
+D3_00005	Igualdade da Receita Corrente Líquida (RCL) entre o Anexo 03 do RREO e os Anexos 01, 02, 03 e 04 do RGF do poder executivo	RREO X RGF
+D3_00006	Igualdade da Dívida Consolidada Líquida (DCL) entre o Anexo 06 do RREO e o Anexo 02 do RGF do poder executivo	RREO X RGF
+D3_00008	Igualdade dos restos a pagar não processados entre o Anexo 01 do RREO e o Anexo 05 do RGF de todos os poderes/órgãos	RREO X RGF
+D3_00009	Igualdade dos restos a pagar processados e não processados entre o Anexo 07 do RREO e o Anexo 05 do RGF de todos os poderes/órgãos	RREO X RGF
+D3_00010	Igualdade da Receita Corrente Líquida (RCL) no Anexo 01 do RGF de todos os poderes/órgãos	RGF
+D3_00014	Igualdade das Transferências Obrigatórias da União Relativas às Emendas Individuais nos Anexos 01, 02 e 04 do RGF do poder executivo	RGF
+D3_00015	Igualdade das Transferências Relativas às Emendas Individuais entre o Anexo 03 do RREO e o Anexo 01 do RGF do poder executivo	RGF X RREO
+D3_00016	Igualdade das Transferências Relativas às Emendas de bancada entre o Anexo 03 do RREO e o Anexo 01 do RGF do poder executivo	RGF X RREO
+D3_00022	Igualdade das "Receitas Correntes Orçamentárias" e "Receitas Correntes Intraorçamentárias" no Anexo 1 do RREO e dos valores da MSC de dezembro.	MSC Dez X RREO
+D3_00023	Igualdade das ""Receitas de Capital Orçamentárias"" e ""Receitas de Capital Intraorçamentárias"" no Anexo 1 do RREO e da MSC de dezembro."	MSC Dez X RREO
+D3_00024	Igualdade das "Despesas Correntes Orçamentárias" e "Despesas Correntes Intraorçamentárias" no Anexo 1 do RREO e dos valores da MSC de dezembro.	MSC Dez X RREO
+D3_00025	Igualdade das "Despesas de Capital Orçamentárias" e "Despesas de Capital Intraorçamentárias" no Anexo 1 do RREO e da MSC de dezembro.	MSC Dez X RREO
+D4_00001	Igualdade da receita realizada entre o Anexo I-C da DCA e o Anexo 01 do RREO 6ºB.	DCA X RREO
+D4_00002	Igualdade da execução da despesa entre o Anexo I-D da DCA e o Anexo 01 do RREO 6ºB.	DCA X RREO
+D4_00003	Igualdade da execução da despesa por função entre o Anexo I-E da DCA e o Anexo 02 do RREO 6ºB (exceto intraorçamentária).	DCA X RREO
+D4_00004	Igualdade da execução da despesa por função entre o Anexo I-E da DCA  e o Anexo 02 do RREO 6ºB (intraorçamentária).	DCA X RREO
+D4_00005	Igualdade dos restos a pagar não processados e processados entre o Anexo I-F da DCA e o Anexo 07 do RREO 6ºB.	DCA X RREO
+D4_00006	Igualdade dos restos a pagar não processados entre o Anexo I-G da DCA e o Anexo 07 do RREO 6ºB.	DCA X RREO
+D4_00007	Igualdade dos restos a pagar processados entre o Anexo I-G da DCA e o Anexo 07 do RREO 6ºB.	DCA X RREO
+D4_00010	Igualdade das receitas com tributos municipais entre o Anexo I-C da DCA e o Anexo 03 do RREO 6ºB.	DCA X RREO
+D4_00012	Igualdade das transferências municipais entre a DCA e o RREO 6ºB.	DCA X RREO
+D4_00017	Igualdade das contrib. dos servidores e compensações financeiras entre a DCA e o RREO 6ºB.	DCA X RREO
+D4_00019	Igualdade do valor das despesas de capital entre DCA e RREO 6ºB.	DCA X RREO
+D4_00020	Igualdade nas receitas arrecadadas na MSC de dezembro e no Anexo 01 do RREO 6ºB.	MSC X RREO
+D4_00022	Igualdade nas receitas com tributos municipais na MSC de dezembro e no Anexo 03 do RREO 6ºB.	MSC X RREO
+D4_00024	Igualdade nas receitas municipais com transferências constitucionais na MSC de dezebro e no RREO 6ºB.	MSC X RREO
+D4_00025	Igualdade das Despesas Orçamentárias empenhadas, liquidadas e pagas na MSC de dezembro e no RREO 6ºB.	MSC X RREO
+D4_00026	Igualdade dos Restos a Pagar não processados no RREO 6ºB e na MSC de dezembro	MSC X RREO
+D4_00027	Igualdade das contas CEC e Caixa Bruta entre os relatórios	MSC X RREO
+D4_00028	Igualdade das contas CEC e Caixa Bruta entre os relatórios	MSC X RREO
+D4_00029	Igualdade de despesas empenhadas na função Previdência Social entre os relatórios	MSC X RREO
+D4_00030	Igualdade de despesas empenhadas na função Saúde entre os relatórios	MSC X RREO
+D4_00031	Igualdade de despesas empenhadas na função Educação entre os relatórios	MSC X RREO
+D4_00032	Igualdade de despesas empenhadas das funções diferentes de Educação, Saúde e Previdência Social entre os relatórios	MSC X RREO
+D4_00033	Igualdade de despesas empenhadas intraorçamentárias entre os relatórios	MSC X RREO
+D4_00034	Igualdades de saldos finais de RPP pagos e RPNP pagos entre os relatórios	MSC X RREO
+D4_00038	Igualdade nas receitas de Tributos ( IPTU, ISS, ITBI, IRRF ) entre os Anexos VI RREO X MSC de dezembro	MSC X RREO
+D4_00040	Igualdade no valor das transferências constitucionais ( Cota-Parte do FPM, Cota-Parte do ICMS, Cota-Parte do IPVA, Cota-Parte do ITR e Transferências do FUNDEB ) entre os anexos VI RREO X MSC de dezembro	MSC X RREO
+
+
