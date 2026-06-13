@@ -173,289 +173,7 @@ ANO_INICIO_CONSULTA_PUBLICA = 2025
 #############################################################################
 #############################################################################
 
-########################
-### Fragmento STN / Ranking Diário (não reexecuta o restante da página)
-########################
-
-
-@st.fragment
-def render_comparacao_stn_e_ranking_diario_fragment():
-    """
-    Checkbox, upload CSV, tabela STN e comparação com ranking diário.
-    Interações aqui só rerodam este fragmento — não recarregam API nem D1–D4.
-    """
-    final = st.session_state.get("_comparacao_final_df")
-    stn_oficial = st.session_state.get("_comparacao_stn_oficial")
-    if final is None or stn_oficial is None:
-        st.warning("Dados de comparação indisponíveis. Execute **Processar Análise** novamente.")
-        return
-
-    st.markdown("---")
-    st.markdown("##### Comparação opcional: Ranking Diário (online)")
-    st.caption(
-        "Use esta opção **depois** que a análise terminar. Ela não altera os cálculos das dimensões — apenas "
-        "prepara os dados para a seção *Ranking Fechado vs Ranking Diário*, exibida **abaixo** da tabela "
-        "de notas oficiais STN. **Marcar o checkbox não reprocessa a análise** (apenas atualiza esta área)."
-    )
-    usar_ranking_diario = st.checkbox(
-        "📊 Comparar com Ranking Diário (Online)",
-        value=False,
-        help=(
-            "Carregue o CSV do ranking diário para comparar evolução entre ranking fechado (STN) e o ranking atual. "
-            "Independente da análise calculada acima."
-        ),
-        key="usar_ranking_diario_cb",
-    )
-
-    if usar_ranking_diario:
-        st.info("""
-        **Ranking Diário vs Ranking Fechado:**
-        - O **Ranking Fechado** é a pontuação oficial no fechamento do ranking (maio/2025)
-        - O **Ranking Diário** reflete a pontuação atual, com retificações realizadas após o fechamento
-        """)
-
-        uploaded_ranking_diario = st.file_uploader(
-            "📁 Carregar CSV do Ranking Diário",
-            type=['csv'],
-            help="Faça upload do arquivo CSV exportado do ranking diário do SICONFI (formato: cod,dimensao,exercicio,nome,sigla,valor,verificacao)",
-            key="ranking_diario_upload",
-        )
-
-        if uploaded_ranking_diario is not None:
-            try:
-                df_ranking_diario = pd.read_csv(uploaded_ranking_diario)
-
-                colunas_esperadas = ['cod', 'dimensao', 'exercicio', 'nome', 'sigla', 'valor', 'verificacao']
-                colunas_presentes = [col for col in colunas_esperadas if col in df_ranking_diario.columns]
-
-                if len(colunas_presentes) < 5:
-                    st.error("❌ Arquivo CSV com formato inválido.")
-                    st.caption(f"Colunas esperadas: {colunas_esperadas}")
-                    st.caption(f"Colunas encontradas: {list(df_ranking_diario.columns)}")
-                    st.session_state.ranking_diario_df = None
-                else:
-                    df_ranking_diario = df_ranking_diario[
-                        df_ranking_diario['dimensao'].isin(['DI', 'DII', 'DIII', 'DIV'])
-                    ]
-                    df_ranking_diario['Dimensão'] = df_ranking_diario['verificacao']
-                    df_ranking_diario = df_ranking_diario.rename(columns={'valor': 'Nota_Diario'})
-
-                    st.session_state.ranking_diario_df = df_ranking_diario
-                    st.success(f"✅ Ranking diário carregado: {len(df_ranking_diario)} verificações")
-
-            except Exception as e:
-                st.error(f"❌ Erro ao ler arquivo: {str(e)}")
-                st.session_state.ranking_diario_df = None
-        else:
-            if st.session_state.ranking_diario_df is not None:
-                st.success(f"✅ Ranking diário já carregado: {len(st.session_state.ranking_diario_df)} verificações")
-    else:
-        st.session_state.ranking_diario_df = None
-
-    st.markdown("---")
-    st.subheader("🔍 Comparação com Resultado Oficial STN")
-
-    comparacao = final.merge(stn_oficial, on='Dimensão', how='left')
-
-    comparacao['Diferença'] = comparacao['Nota'] - comparacao['Nota_STN']
-
-    tolerancia_comparacao = 0.01
-    comparacao['Status_Comparacao'] = comparacao['Diferença'].apply(
-        lambda x: '✅ Bateu' if abs(x) <= tolerancia_comparacao else '❌ Divergiu' if pd.notna(x) else '⚠️ Sem dado STN'
-    )
-
-    comparacao = comparacao[[
-        'Dimensão',
-        'Nota',
-        'Nota_STN',
-        'Diferença',
-        'Status_Comparacao',
-        'Resposta',
-        'Descrição da Dimensão'
-    ]]
-
-    def highlight_comparacao(row):
-        if row['Status_Comparacao'] == '✅ Bateu':
-            return ['background-color: #d4edda; color: #155724; font-weight: 500'] * len(row)
-        elif row['Status_Comparacao'] == '❌ Divergiu':
-            return ['background-color: #f8d7da; color: #721c24; font-weight: 500'] * len(row)
-        else:
-            return ['background-color: #fff3cd; color: #856404; font-weight: 500'] * len(row)
-
-    comparacao_styled = comparacao.style.apply(highlight_comparacao, axis=1).format({
-        'Nota': '{:.2f}',
-        'Nota_STN': '{:.2f}',
-        'Diferença': '{:.3f}'
-    }).hide(axis='index')
-
-    num_linhas_comp = len(comparacao)
-    altura_comparacao = 38 + (num_linhas_comp * 35) + 10
-    altura_comparacao = max(100, min(altura_comparacao, 500))
-
-    st.dataframe(
-        comparacao_styled,
-        use_container_width=True,
-        height=altura_comparacao,
-        hide_index=True,
-        column_config={
-            "Dimensão": st.column_config.TextColumn("Dimensão", width=100),
-            "Nota": st.column_config.NumberColumn("Nota Calculada", width=100, format="%.2f"),
-            "Nota_STN": st.column_config.NumberColumn("Nota STN", width=100, format="%.2f"),
-            "Diferença": st.column_config.NumberColumn("Diferença", width=100, format="%.3f"),
-            "Status_Comparacao": st.column_config.TextColumn("Status", width=120),
-            "Resposta": st.column_config.TextColumn("Resposta", width=80),
-            "Descrição da Dimensão": st.column_config.TextColumn("Descrição", width=300)
-        }
-    )
-
-    col1, col2, col3 = st.columns(3)
-
-    total_verificacoes = len(comparacao)
-    bateram = len(comparacao[comparacao['Status_Comparacao'] == '✅ Bateu'])
-    divergiram = len(comparacao[comparacao['Status_Comparacao'] == '❌ Divergiu'])
-    sem_dado = len(comparacao[comparacao['Status_Comparacao'] == '⚠️ Sem dado STN'])
-
-    with col1:
-        st.metric("✅ Verificações que Bateram", f"{bateram}/{total_verificacoes}",
-                 delta=f"{(bateram/total_verificacoes*100):.1f}%" if total_verificacoes > 0 else "0%")
-
-    with col2:
-        st.metric("❌ Divergências", divergiram,
-                 delta=f"{(divergiram/total_verificacoes*100):.1f}%" if total_verificacoes > 0 else "0%",
-                 delta_color="inverse")
-
-    with col3:
-        st.metric("⚠️ Sem Dado STN", sem_dado)
-
-    df_ranking_diario = st.session_state.get('ranking_diario_df')
-
-    if df_ranking_diario is not None and not df_ranking_diario.empty:
-        st.markdown("---")
-        st.subheader("📊 Comparação: Ranking Fechado vs Ranking Diário")
-
-        try:
-            ranking_diario_prep = df_ranking_diario[['Dimensão', 'Nota_Diario']].copy()
-
-            ranking_fechado_prep = stn_oficial.rename(columns={'Nota_STN': 'Nota_Fechado'}).copy()
-
-            comparacao_rankings = ranking_fechado_prep.merge(
-                ranking_diario_prep[['Dimensão', 'Nota_Diario']],
-                on='Dimensão',
-                how='outer'
-            )
-
-            comparacao_rankings['Evolução'] = comparacao_rankings['Nota_Diario'] - comparacao_rankings['Nota_Fechado']
-
-            def status_evolucao(row):
-                if pd.isna(row['Nota_Fechado']) or pd.isna(row['Nota_Diario']):
-                    return '⚠️ Dados incompletos'
-                elif row['Evolução'] > 0.001:
-                    return '📈 Melhorou'
-                elif row['Evolução'] < -0.001:
-                    return '📉 Piorou'
-                else:
-                    return '➡️ Manteve'
-
-            comparacao_rankings['Status_Evolução'] = comparacao_rankings.apply(status_evolucao, axis=1)
-
-            comparacao_rankings = comparacao_rankings.sort_values('Dimensão').reset_index(drop=True)
-
-            def highlight_evolucao(row):
-                if row['Status_Evolução'] == '📈 Melhorou':
-                    return ['background-color: #d4edda; color: #155724; font-weight: 500'] * len(row)
-                elif row['Status_Evolução'] == '📉 Piorou':
-                    return ['background-color: #f8d7da; color: #721c24; font-weight: 500'] * len(row)
-                elif row['Status_Evolução'] == '➡️ Manteve':
-                    return ['background-color: #e2e3e5; color: #383d41; font-weight: 500'] * len(row)
-                else:
-                    return ['background-color: #fff3cd; color: #856404; font-weight: 500'] * len(row)
-
-
-            col1, col2, col3, col4 = st.columns(4)
-
-            total_comp = len(comparacao_rankings[comparacao_rankings['Status_Evolução'] != '⚠️ Dados incompletos'])
-            melhoraram = len(comparacao_rankings[comparacao_rankings['Status_Evolução'] == '📈 Melhorou'])
-            pioraram = len(comparacao_rankings[comparacao_rankings['Status_Evolução'] == '📉 Piorou'])
-            mantiveram = len(comparacao_rankings[comparacao_rankings['Status_Evolução'] == '➡️ Manteve'])
-
-            with col1:
-                st.metric("📈 Melhoraram", melhoraram,
-                         delta=f"+{melhoraram}" if melhoraram > 0 else "0")
-
-            with col2:
-                st.metric("📉 Pioraram", pioraram,
-                         delta=f"-{pioraram}" if pioraram > 0 else "0",
-                         delta_color="inverse")
-
-            with col3:
-                st.metric("➡️ Mantiveram", mantiveram)
-
-            with col4:
-                soma_evolucao = comparacao_rankings['Evolução'].sum()
-                st.metric("📊 Saldo Evolução",
-                         f"{soma_evolucao:+.2f}",
-                         delta="positivo" if soma_evolucao > 0 else "negativo" if soma_evolucao < 0 else "neutro")
-
-            st.markdown("#### 📋 Detalhamento por Verificação")
-
-            comparacao_rankings_styled = comparacao_rankings.style.apply(highlight_evolucao, axis=1).format({
-                'Nota_Fechado': '{:.2f}',
-                'Nota_Diario': '{:.2f}',
-                'Evolução': '{:+.2f}'
-            }).hide(axis='index')
-
-            num_linhas_evo = len(comparacao_rankings)
-            altura_evolucao = 38 + (num_linhas_evo * 35) + 10
-            altura_evolucao = max(100, min(altura_evolucao, 600))
-
-            st.dataframe(
-                comparacao_rankings_styled,
-                use_container_width=True,
-                height=altura_evolucao,
-                hide_index=True,
-                column_config={
-                    "Dimensão": st.column_config.TextColumn("Verificação", width=110),
-                    "Nota_Fechado": st.column_config.NumberColumn("Ranking Fechado", width=130, format="%.2f"),
-                    "Nota_Diario": st.column_config.NumberColumn("Ranking Diário", width=130, format="%.2f"),
-                    "Evolução": st.column_config.NumberColumn("Evolução", width=100, format="%+.2f"),
-                    "Status_Evolução": st.column_config.TextColumn("Status", width=140)
-                }
-            )
-
-            st.markdown("#### 🔄 Verificações que Mudaram")
-
-            mudaram = comparacao_rankings[
-                comparacao_rankings['Status_Evolução'].isin(['📈 Melhorou', '📉 Piorou'])
-            ].copy()
-
-            if mudaram.empty:
-                st.success("✅ Nenhuma verificação mudou entre o ranking fechado e o ranking diário!")
-            else:
-                col_mel, col_pio = st.columns(2)
-
-                with col_mel:
-                    st.markdown("##### 📈 Melhorias")
-                    melhorias = mudaram[mudaram['Status_Evolução'] == '📈 Melhorou'][['Dimensão', 'Nota_Fechado', 'Nota_Diario', 'Evolução']]
-                    if not melhorias.empty:
-                        st.dataframe(melhorias, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Nenhuma melhoria identificada")
-
-                with col_pio:
-                    st.markdown("##### 📉 Pioras")
-                    pioras = mudaram[mudaram['Status_Evolução'] == '📉 Piorou'][['Dimensão', 'Nota_Fechado', 'Nota_Diario', 'Evolução']]
-                    if not pioras.empty:
-                        st.dataframe(pioras, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("Nenhuma piora identificada")
-
-        except Exception as e:
-            st.error(f"❌ Erro ao processar comparação com ranking diário: {str(e)}")
-            with st.expander("Ver detalhes do erro"):
-                st.code(str(e))
-
-
-# --- Exportações / comparação: fragmentos para não reexecutar o pipeline ao interagir com widgets ---
+# --- Exportações: fragmentos para não reexecutar o pipeline ao interagir com widgets ---
 
 _COLS_COMPARAR_RESULTADO = ["Dimensão", "Resposta", "Descrição da Dimensão", "Nota", "OBS"]
 
@@ -465,9 +183,6 @@ def _limpar_bundles_exportacao_session():
         "_bundle_demonstrativos",
         "_final_df_export",
         "_export_meta",
-        # Comparação STN guarda cópias do resultado; sem pop ficam em RAM após "Limpar Cache"
-        "_comparacao_final_df",
-        "_comparacao_stn_oficial",
     ):
         st.session_state.pop(_k, None)
     # Bytes cacheados de Excel/CSV (chaveados por cod_ano) — usados pelo fragment
@@ -1141,8 +856,6 @@ def main():
             del st.session_state['tipo_relatorio']
         if 'analise_processada' in st.session_state:
             st.session_state.analise_processada = False
-        if 'ranking_diario_df' in st.session_state:
-            st.session_state.ranking_diario_df = None
         _limpar_bundles_exportacao_session()
 
         # Atualizar ente/ano anterior
@@ -1470,9 +1183,6 @@ def main():
         st.session_state.analise_ente = None
     if 'analise_ano' not in st.session_state:
         st.session_state.analise_ano = None
-    if 'ranking_diario_df' not in st.session_state:
-        st.session_state.ranking_diario_df = None
-
     st.markdown("---")
 
     # Botões para processar análise e limpar cache
@@ -1483,7 +1193,6 @@ def main():
         if st.button("🗑️ Limpar Cache", use_container_width=True, help="Limpa o cache e recarrega os dados da API"):
             st.cache_data.clear()
             st.session_state.analise_processada = False
-            st.session_state.ranking_diario_df = None
             _limpar_bundles_exportacao_session()
             gc.collect()
             st.success("✅ Cache limpo!")
@@ -4647,57 +4356,6 @@ def main():
         render_tab_d4(tab_d4, locals())
 
 
-
-
-    #############################################################################
-    #############################################################################
-    #############################################################################
-
-    #############################################################################
-    # COMPARAÇÃO COM RESULTADO OFICIAL DA STN / RANKING DIÁRIO (fragmento — evita reprocessar API)
-    #############################################################################
-
-    # Preparar dados oficiais da STN (Ranking Fechado)
-    if tipo_ente == "E":
-        stn_oficial = df_base[
-            (df_base['VA_EXERCICIO'] == ano) &
-            (df_base[coluna_codigo] == int(ente))
-        ].copy()
-        stn_oficial = stn_oficial[stn_oficial['SG_DIMENSAO'].isin(['DI', 'DII', 'DIII', 'DIV'])]
-        stn_oficial = stn_oficial.rename(columns={
-            'NO_VERIFICACAO': 'Dimensão',
-            'PONTUACAO': 'Nota_STN'
-        })
-        stn_oficial['Nota_STN'] = stn_oficial['Nota_STN'].astype(str).str.replace(',', '.').astype(float)
-        stn_oficial = stn_oficial[['Dimensão', 'Nota_STN']]
-    else:
-        municipio_data = df_base[
-            (df_base['VA_EXERCICIO'] == ano) &
-            (df_base[coluna_codigo] == int(ente))
-        ].copy()
-        if not municipio_data.empty:
-            colunas_dimensoes = [
-                col for col in municipio_data.columns
-                if col in VERIFICACOES_CRUZAMENTOS
-            ]
-            stn_oficial = municipio_data.melt(
-                id_vars=[coluna_codigo, 'NOME_ENTE', 'VA_EXERCICIO'],
-                value_vars=colunas_dimensoes,
-                var_name='Dimensão',
-                value_name='Nota_STN'
-            )
-            stn_oficial['Nota_STN'] = stn_oficial['Nota_STN'].astype(str).str.replace(',', '.', regex=False)
-            stn_oficial['Nota_STN'] = pd.to_numeric(stn_oficial['Nota_STN'], errors='coerce')
-            stn_oficial = stn_oficial.dropna(subset=['Nota_STN'])
-            stn_oficial = stn_oficial[['Dimensão', 'Nota_STN']]
-        else:
-            stn_oficial = pd.DataFrame(columns=['Dimensão', 'Nota_STN'])
-    stn_oficial = filtrar_verificacoes_cruzamentos(stn_oficial)
-
-    st.session_state['_comparacao_final_df'] = final.copy()
-    st.session_state['_comparacao_stn_oficial'] = stn_oficial.copy()
-
-    render_comparacao_stn_e_ranking_diario_fragment()
 
 
     # Finalizar
