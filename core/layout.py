@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-from copy import deepcopy
 from datetime import datetime
 import html
 from pathlib import Path
@@ -11,44 +10,20 @@ from core.auth import get_current_user, is_auth_enabled, logout, require_login
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _ASSETS_CSS = _PROJECT_ROOT / "assets" / "theme.css"
-LOGO_PATH = str(_PROJECT_ROOT / "assets" / "logo-mark.svg")
 
+# A navegação é declarada em um único lugar para manter os mesmos destinos e
+# rótulos nas três páginas. Itens ausentes são ignorados durante o render.
 _MAIN_NAV_ITEMS = (
     ("Home", "🏠", "pages/00_🏠 Home.py"),
     ("Validação on-line", "✅", "pages/01_✅ Cruzamentos do Ranking.py"),
     ("Diagnóstico histórico", "📚", "pages/02_📚 Diagnóstico Histórico.py"),
 )
 
-# Menu compartilhado do app
-APP_MENU = {
-    "Home": [
-        {"path": "pages/00_🏠 Home.py", "label": "Início", "icon": "🏠"},
-    ],
-    "Cruzamentos": [
-        {"path": "pages/01_✅ Cruzamentos do Ranking.py", "label": "Validação on-line", "icon": "✅"},
-    ],
-    "Diagnóstico": [
-        {"path": "pages/02_📚 Diagnóstico Histórico.py", "label": "Diagnóstico histórico", "icon": "📚"},
-    ],
-}
-
 
 def _resolve_project_path(path: str | Path) -> Path:
     """Resolve caminhos relativos a partir da raiz do projeto."""
     candidate = Path(path)
     return candidate if candidate.is_absolute() else _PROJECT_ROOT / candidate
-
-
-def get_app_menu() -> dict:
-    menu = deepcopy(APP_MENU)
-    for section, links in list(menu.items()):
-        menu[section] = [
-            item for item in links
-            if _resolve_project_path(item["path"]).exists()
-        ]
-        if not menu[section]:
-            del menu[section]
-    return menu
 
 
 def _img_data_uri(path: str | Path) -> str:
@@ -91,7 +66,6 @@ def _infer_active_label(page_title: str) -> str:
 def setup_page(
     page_title: str = "CRUZAMENTOS SICONFI",
     layout: str = "wide",
-    hide_default_nav: bool = False,  # mantido por compatibilidade
     require_login_enabled: bool = True,
     page_icon: str | None = None,
     logo_path: str = "assets/logo-mark.svg",
@@ -112,8 +86,6 @@ def setup_page(
         layout=layout,
         initial_sidebar_state="collapsed",
     )
-
-    _ = hide_default_nav
 
     try:
         qp = st.query_params
@@ -173,40 +145,12 @@ def render_main_nav(active: str = "Home") -> None:
     st.markdown("<div class='top-nav-spacer' aria-hidden='true'></div>", unsafe_allow_html=True)
 
 
-def navbar(
-    active: str = "Home",
-    show_title_next_to_logo: bool = False,
-    show_brand_in_nav: bool = False,
-) -> None:
-    """Alias compatível da navegação antiga."""
-    if not show_brand_in_nav:
-        render_main_nav(active)
-        return
-
-    c_logo, c_menu = st.columns([0.18, 0.82], vertical_alignment="center")
-    with c_logo:
-        src = html.escape(st.session_state.get("_brand_data_uri", ""), quote=True)
-        title_html = (
-            '<span class="nav-brand__title">CRUZAMENTOS SICONFI</span>'
-            if show_title_next_to_logo else ""
-        )
-        st.markdown(
-            f'<div class="nav-brand"><img src="{src}" alt="" aria-hidden="true"/>{title_html}</div>',
-            unsafe_allow_html=True,
-        )
-    with c_menu:
-        _render_nav_buttons(active)
-    st.markdown("<div class='top-nav-spacer' aria-hidden='true'></div>", unsafe_allow_html=True)
-
-
 def page_brand(
     title: str,
     logo_path: str | None = None,
     show_logout: bool = False,
-    logout_target: str = "app.py",
 ) -> None:
     """Exibe o cabeçalho da marca com conteúdo escapado e layout responsivo."""
-    _ = logout_target  # mantido na assinatura por compatibilidade
     safe_title = html.escape(str(title))
     logo_src = _img_data_uri(logo_path) if logo_path else ""
     logo_html = (
@@ -389,34 +333,3 @@ def app_footer(
         """,
         unsafe_allow_html=True,
     )
-
-
-def sidebar_menu(structure: dict, *, use_expanders: bool = True, expanded: bool = True, show_env_info: bool = True):
-    with st.sidebar:
-        _ = show_env_info
-        st.markdown("## 📚 Módulos")
-        for section, links in structure.items():
-            if use_expanders:
-                with st.expander(section, expanded=expanded):
-                    for item in links:
-                        st.page_link(item["path"], label=f'{item.get("icon","")} {item["label"]}'.strip())
-            else:
-                st.markdown(f"### {section}")
-                for item in links:
-                    st.page_link(item["path"], label=f'{item.get("icon","")} {item["label"]}'.strip())
-                st.divider()
-        if is_auth_enabled():
-            if st.button("⎋ Sair", key="sidebar_logout_btn"):
-                logout()
-                st.switch_page("app.py")
-
-
-def hero():
-    page_intro(
-        "CRUZAMENTOS SICONFI",
-        description="Dados e análises do SICONFI — use o menu superior para navegar.",
-    )
-
-
-# Nome anterior preservado para integrações que já o tenham importado.
-page_footer = app_footer

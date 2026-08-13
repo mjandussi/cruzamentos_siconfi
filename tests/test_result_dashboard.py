@@ -4,12 +4,10 @@ import pandas as pd
 from streamlit.testing.v1 import AppTest
 
 from api_ranking.renders.result_dashboard import (
-    filter_dimension_results,
     format_currency_pt_br,
     format_decimal_pt_br,
     format_percentage_pt_br,
-    prepare_dimension_results,
-    result_option_label,
+    prepare_results,
     sort_results_numerically,
     style_evidence_table,
     summarize_dimension,
@@ -61,8 +59,12 @@ class ResultDashboardTests(unittest.TestCase):
             "d2_00002_t": pd.DataFrame({"Valor A": [10], "Valor B": [20]}),
         }
 
+    def _prepared_dimension(self, dimension):
+        prepared = prepare_results(self.ctx["final"], self.ctx)
+        return prepared[prepared["Grupo"] == dimension].reset_index(drop=True)
+
     def test_prepare_filters_dimension_sorts_priorities_and_marks_evidence(self):
-        data = prepare_dimension_results(self.ctx, "D2_")
+        data = self._prepared_dimension("D2")
 
         self.assertEqual(data["Dimensão"].tolist(), [
             "D2_00002", "D2_00004", "D2_00001", "D2_00003"
@@ -72,7 +74,7 @@ class ResultDashboardTests(unittest.TestCase):
         self.assertEqual(evidence["D2_00001"], "—")
 
     def test_summary_separates_conclusive_and_inconclusive(self):
-        summary = summarize_dimension(prepare_dimension_results(self.ctx, "D2_"))
+        summary = summarize_dimension(self._prepared_dimension("D2"))
 
         self.assertEqual(summary["total"], 4)
         self.assertEqual(summary["divergences"], 1)
@@ -81,27 +83,19 @@ class ResultDashboardTests(unittest.TestCase):
         self.assertEqual(summary["not_applicable"], 1)
         self.assertEqual(summary["conformity_percent"], 50.0)
 
-    def test_priority_and_text_filters_are_combined(self):
-        data = prepare_dimension_results(self.ctx, "D2_")
+    def test_prepare_ignores_results_outside_d2_d3_d4(self):
+        final = self.ctx["final"].copy()
+        final.loc[len(final)] = {
+            "Dimensão": "D1_00001",
+            "Resposta": "OK",
+            "Descrição da Dimensão": "Fora do painel",
+            "Nota": 1,
+            "OBS": "",
+        }
 
-        priorities = filter_dimension_results(data, "Prioridades")
-        self.assertEqual(priorities["Dimensão"].tolist(), ["D2_00002", "D2_00004"])
+        prepared = prepare_results(final, self.ctx)
 
-        inconclusive = filter_dimension_results(data, "Inconclusivos")
-        self.assertEqual(inconclusive["Dimensão"].tolist(), ["D2_00004"])
-
-        searched = filter_dimension_results(data, "Todos", "receitas")
-        self.assertEqual(searched["Dimensão"].tolist(), ["D2_00001"])
-
-    def test_option_label_contains_code_description_and_status(self):
-        data = prepare_dimension_results(self.ctx, "D2_")
-        row = data.loc[data["Dimensão"] == "D2_00002"].iloc[0]
-
-        label = result_option_label(row)
-
-        self.assertIn("D2_00002", label)
-        self.assertIn("Despesas divergentes", label)
-        self.assertIn("Divergência", label)
+        self.assertNotIn("D1_00001", prepared["Dimensão"].tolist())
 
     def test_rules_are_sorted_by_numeric_code_not_lexicographically(self):
         data = pd.DataFrame(
@@ -119,7 +113,7 @@ class ResultDashboardTests(unittest.TestCase):
         )
 
     def test_missing_final_returns_empty_dataframe(self):
-        self.assertTrue(prepare_dimension_results({}, "D4_").empty)
+        self.assertTrue(prepare_results(pd.DataFrame()).empty)
 
     def test_financial_values_use_brazilian_format(self):
         self.assertEqual(format_currency_pt_br(2552509616.55), "R$ 2.552.509.616,55")

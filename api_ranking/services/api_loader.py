@@ -1,3 +1,10 @@
+"""Coleta assíncrona e cacheada dos demonstrativos públicos do Siconfi.
+
+As funções assíncronas concentram paginação, retentativas e limites de
+concorrência; as entradas Streamlit no fim do módulo definem a política de
+cache sem misturá-la às regras de análise.
+"""
+
 import asyncio
 import time
 
@@ -31,11 +38,8 @@ MSC_COLUMNS = [
     "valor",
 ]
 
-#############################################################################
-####  Funções Assíncronas  ####
-#############################################################################
-
-# Timeout: leitura de payloads grandes (MSC) pode demorar; conexão TLS ocasionalmente estoura com connect curto.
+# A leitura da MSC pode ser longa, e o handshake TLS às vezes ultrapassa o
+# padrão de conexão; por isso os dois limites são deliberadamente maiores.
 _DEFAULT_TIMEOUT = httpx.Timeout(180.0, connect=60.0)
 
 
@@ -253,56 +257,24 @@ async def load_rgf(ente, ano, tipo_ente="E", tipo_relatorio="Completo", concurre
         results = await asyncio.gather(*tasks.values())
     return dict(zip(tasks.keys(), results))
 
-####################################################################################################3
+# Os TTLs equilibram repetição de consultas e atualização da fonte. Instâncias
+# com pouca memória podem acrescentar ``max_entries`` aos decorators sem mudar
+# o contrato dos carregadores.
 
-#############################################################################
-####  Funções com Cache  ####
-#############################################################################
-#
-#   CACHE — LOCAL vs PRODUÇÃO (alinhado à página de validações)
-#   -------------------------------------------------------------
-#   Por defeito: TTL nos decorators; sem max_entries → vários entes/anos
-#   podem ficar em cache (rápido para testes locais; mais RAM no processo).
-#
-#   Em VPS com 8 GB e vários estados grandes no mesmo container, podes:
-#   • em get_extratos:     @st.cache_data(..., max_entries=16)
-#   • em load_all_data_cached: @st.cache_data(..., max_entries=3)
-#   (LRU expulsa entradas antigas; reduz pico, pode forçar novo download.)
-#
-#   Na página de validações existe bloco comentado: st.cache_data.clear()
-#   ao mudar ente/ano — combina bem com max_entries em cenários apertados.
-#
-#############################################################################
+# O aplicativo atende somente municípios; manter um único carregador evita
+# sugerir suporte estadual que a jornada e a metodologia não oferecem.
+@st.cache_data(ttl=86400, show_spinner=False)
+def load_municipal_catalog(caminho_base_municipios):
+    """Carrega por 24 horas o catálogo local usado no seletor de municípios."""
+    dataframe = pd.read_csv(
+        caminho_base_municipios,
+        encoding="utf-8",
+        sep=";",
+        on_bad_lines="skip",
+        low_memory=False,
+    )
+    return dataframe, "ID_ENTE", "NOME_ENTE"
 
-# LER A BASE DO RANKING (RESULTADOS)
-@st.cache_data(ttl=86400, show_spinner=False)  # Cache por 24 horas (bases mudam raramente)
-def load_base_ranking(tipo_ente, caminho_base_estados, caminho_base_municipios):
-    """
-    Carrega a base de ranking (estados ou municípios) com cache.
-    TTL = 86400 segundos (24 horas / 1 dia)
-    """
-    try:
-        if tipo_ente == "E":
-            df = pd.read_csv(
-                caminho_base_estados,
-                encoding='utf-8',
-                sep=';',
-                on_bad_lines='skip',
-                low_memory=False
-            )
-            return df, "COD_IBGE", "NO_ESTADO"
-        df = pd.read_csv(
-            caminho_base_municipios,
-            encoding='utf-8',
-            sep=';',
-            on_bad_lines='skip',
-            low_memory=False
-        )
-        return df, "ID_ENTE", "NOME_ENTE"
-    except Exception as e:
-        raise e
-
-# PEGAR A BASE DE EXTRATO DE ENTREGAS (política de cache: ver quadro acima)
 @st.cache_data(show_spinner=False, ttl=3600)
 def get_extratos(ente: str, ano: int, page_size: int = 5000) -> pd.DataFrame:
     """
@@ -334,7 +306,6 @@ def get_extratos(ente: str, ano: int, page_size: int = 5000) -> pd.DataFrame:
         offset += page_size
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
-# PEGAR TODOS OS DEMONSTRATIVOS (política de cache: ver quadro acima)
 @st.cache_data(ttl=43200, show_spinner=False)
 def load_all_data_cached(ente, ano, meses, tipos_balanco, tipo_ente="E", tipo_relatorio="Completo",
                          carregar_msce=True, carregar_dca=True, carregar_rreo=True, carregar_rgf=True):
@@ -400,19 +371,3 @@ def load_all_data_cached(ente, ano, meses, tipos_balanco, tipo_ente="E", tipo_re
         }
 
     return asyncio.run(_load_all())
-
-
-# PEGAR APENAS O RGF (usado pelo Dashboard RGF) — cache de 12h
-@st.cache_data(ttl=43200, show_spinner=False)
-def load_rgf_cached(ente, ano, tipo_ente="E", tipo_relatorio="Completo", nr_periodo=None):
-    """
-    Carrega os anexos do RGF da API com cache (dict de DataFrames por chave: 1e, 2e, 3e, 5e, ...).
-    TTL = 43200 segundos (12 horas).
-
-    - tipo_ente: "E" (Estado) ou "M" (Município)
-    - tipo_relatorio: "Completo" ou "Simplificado" (apenas para Municípios)
-    - nr_periodo: quadrimestre/semestre da API (sobrescreve o período padrão quando informado)
-    """
-    return asyncio.run(
-        load_rgf(ente, ano, tipo_ente=tipo_ente, tipo_relatorio=tipo_relatorio, nr_periodo=nr_periodo)
-    )

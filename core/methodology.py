@@ -1,11 +1,11 @@
-"""Referenciais metodológicos puros para os diagnósticos do Ranking Siconfi.
+"""Escopo anual de cruzamentos e faixas do ICF descritos na dissertação.
 
-As listas de cruzamentos foram transcritas de
-``app_dissertacao/src/config/dimensoes_tipo_4.py``, o recorte municipal usado
-nas simulações da dissertação. Elas ficam neste módulo para que o aplicativo
-não dependa, em tempo de execução, do outro repositório.
+A tipologia final do trabalho organiza as verificações em cinco grupos; este
+aplicativo implementa o grupo **cruzamento** por meio das dimensões operacionais
+D2, D3 e D4 do Ranking Siconfi. As listas ficam centralizadas aqui para que
+telas, testes e regras não mantenham cópias divergentes do mesmo escopo.
 
-Este módulo não executa regras contábeis; apenas registra o escopo anual.
+O módulo não executa regra contábil nem acessa dados externos.
 """
 
 from __future__ import annotations
@@ -16,9 +16,38 @@ from typing import Final, Mapping
 
 
 METHODOLOGY_SOURCE: Final[str] = (
-    "Dissertação: src/config/dimensoes_tipo_4.py "
-    "(recorte municipal das simulações)"
+    "Dissertação, seção 3.4, Quadro 2 — grupo cruzamento; "
+    "recortes municipais anuais utilizados nas simulações"
 )
+
+# Verificações explicitamente relacionadas à CAPAG no quadro metodológico STN.
+# A descrição textual continua sendo aceita como fallback para regras recentes.
+CODIGOS_VERIFICACAO_CAPAG_RANKING: Final[frozenset[str]] = frozenset({
+    "D2_00003", "D2_00004", "D2_00010", "D2_00011", "D2_00012",
+    "D2_00028", "D2_00029", "D2_00033", "D2_00035", "D2_00044",
+    "D2_00045", "D2_00046", "D2_00047", "D2_00048", "D2_00049",
+    "D2_00084", "D2_00085", "D2_00097", "D2_00099", "D3_00005",
+    "D3_00008", "D3_00009", "D3_00010", "D3_00013", "D3_00014",
+    "D3_00015", "D3_00016", "D3_00021", "D3_00022", "D3_00023",
+    "D3_00024", "D3_00026", "D3_00028", "D3_00030", "D3_00044",
+    "D3_00045", "D4_00001", "D4_00002", "D4_00003", "D4_00004",
+    "D4_00010", "D4_00012", "D4_00017", "D4_00020", "D4_00021",
+    "D4_00023", "D4_00025", "D4_00028", "D4_00035", "D4_00037",
+    "D4_00038", "D4_00039", "D4_00040", "D4_00041", "D4_00042",
+    "D4_00043", "D4_00045",
+})
+
+
+def eh_verificacao_capag(
+    dimensao: str | None,
+    descricao: str | None = None,
+) -> bool:
+    """Identifica CAPAG pelo catálogo ou por menção explícita na descrição."""
+    codigo = str(dimensao or "").strip().upper()
+    return (
+        codigo in CODIGOS_VERIFICACAO_CAPAG_RANKING
+        or "CAPAG" in str(descricao or "").upper()
+    )
 
 
 DIMENSOES_CRUZAMENTO_2023: Final[tuple[str, ...]] = (

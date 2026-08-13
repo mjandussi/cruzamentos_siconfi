@@ -471,8 +471,9 @@ with tab_method:
     )
     st.dataframe(method_rows, hide_index=True, width="stretch")
     st.caption(
-        "As 72 verificações representam uma tipologia funcional de cruzamento; "
-        "elas não correspondem à dimensão oficial D4."
+        "As 72 verificações integram o grupo cruzamento da taxonomia final da "
+        "dissertação e preservam códigos D2, D3 e D4; esse grupo não corresponde "
+        "à dimensão oficial D4."
     )
 
     st.subheader("Fórmula do cenário what-if")

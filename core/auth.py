@@ -1,14 +1,8 @@
-"""
-Módulo de Autenticação
-======================
-Sistema de autenticação com proteção contra força bruta e controle de sessão.
+"""Autenticação opcional e leve para uma instalação Streamlit simples.
 
-Funcionalidades:
-- Login/logout de usuários
-- Verificação de senha com bcrypt
-- Proteção contra ataques de força bruta
-- Controle de timeout de sessão
-- Bloqueio temporário após múltiplas tentativas
+As senhas são verificadas com bcrypt. Expiração, tentativas e bloqueio ficam no
+``session_state`` e, portanto, não substituem controles globais de um proxy ou
+provedor de identidade. Os limites estão detalhados em ``SECURITY.md``.
 """
 
 import streamlit as st
@@ -27,7 +21,8 @@ except ModuleNotFoundError:
     def load_dotenv(*args, **kwargs):
         return False
 
-# Carregar variáveis de ambiente a partir da raiz do projeto
+# ``override=True`` permite atualizar credenciais locais sem reiniciar o processo
+# Streamlit; variáveis ausentes continuam usando os padrões seguros abaixo.
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=ENV_PATH, override=True)
 
@@ -282,7 +277,7 @@ def authenticate(username: str, password: str) -> tuple[bool, str]:
         >>> success, message = authenticate("user", "senha123")
         >>> if success:
         ...     st.success(message)
-        ...     st.switch_page("pages/0_Home.py")
+        ...     st.switch_page("pages/00_🏠 Home.py")
         ... else:
         ...     st.error(message)
     """
@@ -384,34 +379,6 @@ def restricted_ranking_fixed_ente() -> tuple[str, str] | None:
     return None
 
 
-def restricted_ranking_fixed_municipio_id() -> str | None:
-    """
-    Compatibilidade: se o perfil fixa apenas município, retorna o ID_ENTE; senão None.
-    Perfis que fixam estado (ex.: subcont) não usam este retorno — use restricted_ranking_fixed_ente.
-    """
-    spec = restricted_ranking_fixed_ente()
-    if spec and spec[0] == "M":
-        return spec[1]
-    return None
-
-
-def get_session_info() -> dict:
-    """
-    Retorna informações sobre a sessão atual.
-
-    Returns:
-        dict: Dicionário com informações da sessão:
-            - user: nome do usuário
-            - last_activity: timestamp da última atividade
-            - timeout_minutes: minutos até timeout
-    """
-    return {
-        "user": st.session_state.get("user"),
-        "last_activity": st.session_state.get("last_activity"),
-        "timeout_minutes": SESSION_TIMEOUT_MINUTES,
-    }
-
-
 def require_login(app_name: str = "CRUZAMENTOS SICONFI") -> None:
     """
     Garante que a página só seja acessível por usuário autenticado.
@@ -426,12 +393,3 @@ def require_login(app_name: str = "CRUZAMENTOS SICONFI") -> None:
         st.warning("Faça login para acessar esta página.")
         st.switch_page("app.py")
         st.stop()
-
-
-def render_logout(label: str = "⎋ Sair", target: str = "app.py") -> None:
-    """
-    Renderiza botão de logout no local onde for chamado.
-    """
-    if st.button(label, key=f"logout_btn_{target}"):
-        logout()
-        st.switch_page(target)

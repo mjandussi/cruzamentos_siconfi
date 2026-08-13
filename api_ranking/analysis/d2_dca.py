@@ -861,7 +861,7 @@ def _removed_analysis_result(code):
     return pd.DataFrame([{
         "Dimensão": code.upper(),
         "Resposta": "N/A",
-        "Descrição da Dimensão": "Verificação fora do escopo da Tabela 12 - Cruzamentos",
+        "Descrição da Dimensão": "Verificação sem implementação no motor atual",
         "Nota": None,
         "OBS": "Análise removida do aplicativo CRUZAMENTOS SICONFI.",
     }])

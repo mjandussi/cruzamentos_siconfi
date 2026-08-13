@@ -3,6 +3,8 @@ import re
 import numpy as np
 import pandas as pd
 
+from api_ranking.analysis.common import fonte_msc_codigo_e_tres_digitos
+
 
 def d3_00001(df_rreo_1):
     rec_rreo_1 = df_rreo_1.query('coluna == "Até o Bimestre (c)" & cod_conta == "TotalReceitas"')
@@ -1629,47 +1631,10 @@ _D3_00028_RREO6_REC = (
 )
 
 
-def _d3_00029_norm_cod_id(series):
-    return (
-        series.astype(str)
-        .str.replace(r'\.0$', '', regex=True)
-        .str.strip()
-    )
-
-
 def _d3_00029_fonte_codigo_4d(series):
-    """
-    Código de fonte em 4 dígitos, alinhado ao D1 (`_fonte_msc_codigo_e_tres_digitos`):
-    remove sufixo .0 do texto antes de tirar não-dígitos — evita que 1605.0 vire '16050' e falhe o filtro.
-    """
-    s = series.astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
-    digitos = s.str.replace(r'\D', '', regex=True)
-    curto = digitos.str.len() < 4
-    normalizado = digitos.where(~curto, digitos.str.zfill(4))
-    return normalizado.str[-4:]
-
-
-def _d3_00029_po_por_ente(tipo_ente):
-    """
-    Metodologia STN (D3_00029): PO executivo, RPPS e defensoria pública.
-    Códigos alinhados à lista de poder/órgão válida na MSC (D1_00019 / Portaria STN).
-    """
-    if tipo_ente == "M":
-        return {'10131', '10132'}
-    return {'10111', '10112', '60611'}
-
-
-def _d3_00029_nd_mask(nd: pd.Series) -> pd.Series:
-    """
-    ND didática MCASP → só dígitos na API. Inclui naturezas longas (substring).
-    - 3.1.XX.XX.XX → começa por 31 (após remover zeros à esquerda)
-    - 3.3.XX.34.XX → bloco 33dd34dd em qualquer posição
-    - 3.3.90.91.34 e 3.3.90.92.34 → contém 33909134 ou 33909234
-    """
-    mask_31 = nd.str.startswith('31', na=False)
-    mask_33_34 = nd.str.contains(r'33\d{2}34\d{2}', na=False, regex=True)
-    mask_fixos = nd.str.contains('33909134', na=False) | nd.str.contains('33909234', na=False)
-    return mask_31 | mask_33_34 | mask_fixos
+    """Mantém a forma de quatro dígitos usada pela regra D3_00026."""
+    code_4, _, _ = fonte_msc_codigo_e_tres_digitos(series)
+    return code_4
 
 
 def d3_00017(df_rreo_6, df_rreo_7):
@@ -3584,7 +3549,7 @@ def _removed_analysis_result(code):
     return pd.DataFrame([{
         "Dimensão": code.upper(),
         "Resposta": "N/A",
-        "Descrição da Dimensão": "Verificação fora do escopo da Tabela 12 - Cruzamentos",
+        "Descrição da Dimensão": "Verificação sem implementação no motor atual",
         "Nota": None,
         "OBS": "Análise removida do aplicativo CRUZAMENTOS SICONFI.",
     }])

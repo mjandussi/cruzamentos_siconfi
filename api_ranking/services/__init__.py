@@ -1,1 +1,1 @@
-"""Serviços (API, formatação, tipos)."""
+"""Acesso à API, disponibilidade dos dados e exportações."""

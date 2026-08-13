@@ -17,6 +17,7 @@ from core.methodology import (
     DIMENSOES_CRUZAMENTO_2025,
     DIMENSOES_CRUZAMENTO_SEM_MSC_2025,
     classify_icf,
+    eh_verificacao_capag,
     get_crosscheck_counts,
     get_crosschecks,
     get_crosschecks_without_msc,
@@ -76,6 +77,11 @@ class MethodologyTests(unittest.TestCase):
             self.assertEqual(classify_icf(score, scale="proportion"), expected)
         self.assertEqual(classify_icf(None), "N/A")
         self.assertEqual(classify_icf(math.nan), "N/A")
+
+    def test_capag_usa_catalogo_e_descricao_explicita(self) -> None:
+        self.assertTrue(eh_verificacao_capag("D2_00044"))
+        self.assertTrue(eh_verificacao_capag("D9_99999", "Regra CAPAG nova"))
+        self.assertFalse(eh_verificacao_capag("D4_00047", "FUNDEB"))
 
     def test_all_2025_crosschecks_have_concrete_functions(self) -> None:
         modules = {"D2": d2, "D3": d3, "D4": d4}

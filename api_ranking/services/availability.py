@@ -1,6 +1,8 @@
-#############################################################################
-# FUNÇÃO: VERIFICAR TIPO DE RELATÓRIO (Simplificado ou Completo)
-#############################################################################
+"""Interpretação do extrato de entregas usado antes de consultar a API.
+
+Este módulo decide apenas quais fontes estão disponíveis. As regras contábeis
+continuam isoladas em ``api_ranking.analysis``.
+"""
 
 def detectar_tipo_relatorio(df_extrato):
     """
@@ -24,10 +26,6 @@ def detectar_tipo_relatorio(df_extrato):
             return 'Simplificado'
     return 'Completo'
 
-
-#############################################################################
-# FUNÇÃO: VERIFICAR A DISPONIBILIDADE DE CADA DEMONSTRATIVO
-#############################################################################
 
 def verificar_disponibilidade_demonstrativos(df_extrato, tipo_ente, tipo_relatorio):
     """
@@ -106,6 +104,8 @@ def verificar_disponibilidade_demonstrativos(df_extrato, tipo_ente, tipo_relator
 
     rgf_df = df_extrato[df_extrato['entregavel'].str.contains('RGF|Gestão Fiscal', case=False, na=False)]
     if not rgf_df.empty:
+        # O próprio extrato é prioritário: ele registra a periodicidade
+        # efetivamente entregue. O tipo detectado é usado apenas como fallback.
         if 'periodicidade' in rgf_df.columns:
             periodicidade = rgf_df['periodicidade'].mode().iloc[0] if not rgf_df['periodicidade'].mode().empty else 'Q'
         else:
@@ -152,66 +152,3 @@ def verificar_disponibilidade_demonstrativos(df_extrato, tipo_ente, tipo_relator
                     resultado['rgf_leg']['mensagem'] = f'Parcial: períodos {", ".join(map(str, periodos_leg))}'
 
     return resultado
-
-
-#############################################################################
-# FUNÇÃO: VERIFICAR SE UMA VERIFICAÇÃO PODE SER EXECUTADA
-#############################################################################
-
-# Tradução dos tipos de relatório do arquivo metodologia para chaves internas
-TRADUCAO_RELATORIO = {
-    'MSC': ['msc'],
-    'DCA': ['dca'],
-    'RREO': ['rreo'],
-    'RGF': ['rgf'],
-    'MSC x DCA': ['msc', 'dca'],
-    'MSC x RREO': ['msc', 'rreo'],
-    'DCA x RREO': ['dca', 'rreo'],
-    'DCA x RGF': ['dca', 'rgf'],
-    'RREO x RGF': ['rreo', 'rgf'],
-    'RGF x RREO': ['rreo', 'rgf'],
-    'MSC de Dezembro': ['msc_encerramento'],
-    'MSC de dezembro x RREO': ['msc_encerramento', 'rreo'],
-    'DCA x MSC de dezembro': ['dca', 'msc_encerramento'],
-    'MSC \nRGF': ['msc', 'rgf'],
-    'RGF\nMSC Dezembro': ['rgf', 'msc_encerramento'],
-}
-
-def verificacao_disponivel(codigo, disponibilidade, tipo_relatorio_verif=None):
-    """
-    Verifica se uma verificação específica pode ser executada.
-
-    Regras:
-    - D1: SEMPRE executa com dados parciais (exceto D1_00036 que precisa msc_encerramento)
-    - D2/D3/D4: Verifica se TODOS os demonstrativos necessários estão disponíveis
-
-    Args:
-        codigo: código da verificação (ex: 'D1_00020')
-        disponibilidade: dict retornado por verificar_disponibilidade_demonstrativos
-        tipo_relatorio_verif: tipo de relatório da verificação (coluna 'Relatório' da metodologia)
-
-    Returns:
-        (bool, str): (pode_executar, mensagem_motivo)
-    """
-    dimensao = codigo[:2]  # 'D1', 'D2', etc.
-
-    if dimensao == 'D1':
-        # D1 sempre executa com dados parciais
-        if codigo == 'D1_00036':
-            # Exceção: precisa MSC Encerramento
-            if not disponibilidade.get('msc_encerramento', {}).get('disponivel', False):
-                return False, "Requer MSC de Encerramento"
-        # Verificar se tem pelo menos MSC disponível para as outras verificações D1
-        if not disponibilidade.get('msc', {}).get('disponivel', False):
-            return False, "Requer MSC"
-        return True, "OK"
-
-    # D2, D3, D4: verificar requisitos baseado no tipo de relatório
-    if tipo_relatorio_verif:
-        requisitos = TRADUCAO_RELATORIO.get(tipo_relatorio_verif, [])
-        for req in requisitos:
-            if not disponibilidade.get(req, {}).get('disponivel', False):
-                nome_req = req.upper().replace('_', ' ')
-                return False, f"Requer {nome_req}"
-
-    return True, "OK"

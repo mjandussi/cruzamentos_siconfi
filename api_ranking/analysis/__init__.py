@@ -1,1 +1,1 @@
-"""Análises D1–D4 e módulos associados."""
+"""Regras analíticas D2–D4 usadas pelos cruzamentos do aplicativo."""

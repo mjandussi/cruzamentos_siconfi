@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from api_ranking.analysis.d1 import _fonte_msc_codigo_e_tres_digitos
+from api_ranking.analysis.common import fonte_msc_codigo_e_tres_digitos
 
 
 def _somar_valores_ou_none(df):
@@ -1700,7 +1700,7 @@ def d4_00043(msc_dez, df_rgf_5e):
     )
     msc = msc.loc[msc['_poder'].isin(poder_executivo)].copy()
     msc['_conta'] = msc['conta_contabil'].astype(str).str.strip()
-    _, _, msc['_fonte3'] = _fonte_msc_codigo_e_tres_digitos(msc['fonte_recursos'])
+    _, _, msc['_fonte3'] = fonte_msc_codigo_e_tres_digitos(msc['fonte_recursos'])
     msc['_valor'] = pd.to_numeric(msc['valor'], errors='coerce').fillna(0.0)
 
     rgf = df_rgf_5e.copy()
@@ -1904,7 +1904,7 @@ def _removed_analysis_result(code):
     return pd.DataFrame([{
         "Dimensão": code.upper(),
         "Resposta": "N/A",
-        "Descrição da Dimensão": "Verificação fora do escopo da Tabela 12 - Cruzamentos",
+        "Descrição da Dimensão": "Verificação sem implementação no motor atual",
         "Nota": None,
         "OBS": "Análise removida do aplicativo CRUZAMENTOS SICONFI.",
     }])

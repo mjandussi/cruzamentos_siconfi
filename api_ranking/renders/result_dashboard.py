@@ -1,4 +1,4 @@
-"""Painel compacto para os resultados das dimensões D2, D3 e D4.
+"""Apresenta os resultados D2, D3 e D4 em abas com detalhes expansíveis.
 
 Este módulo cuida somente da apresentação. As respostas e evidências continuam
 sendo produzidas pelas regras existentes em ``api_ranking.analysis``.
@@ -14,8 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from core.diagnostics import DiagnosticStatus, classify_result
-from core.utils import formatar_reais
-from api_ranking.services.formatting import eh_verificacao_capag
+from core.methodology import eh_verificacao_capag
 
 
 STATUS_LABELS = {
@@ -41,23 +40,6 @@ STATUS_ORDER = {
     DiagnosticStatus.CONFORME: 3,
     DiagnosticStatus.NAO_APLICAVEL: 4,
 }
-
-FILTER_STATUSES = {
-    "Prioridades": {
-        DiagnosticStatus.DIVERGENCIA,
-        DiagnosticStatus.FALHA_TECNICA,
-        DiagnosticStatus.DADOS_INSUFICIENTES,
-    },
-    "Divergências": {DiagnosticStatus.DIVERGENCIA},
-    "Inconclusivos": {
-        DiagnosticStatus.FALHA_TECNICA,
-        DiagnosticStatus.DADOS_INSUFICIENTES,
-    },
-    "Conformes": {DiagnosticStatus.CONFORME},
-    "Todos": set(DiagnosticStatus),
-}
-
-DIMENSION_OPTIONS = ("Todas", "D2", "D3", "D4")
 
 STATUS_BADGE_COLORS = {
     DiagnosticStatus.DIVERGENCIA: "red",
@@ -135,7 +117,8 @@ def format_currency_pt_br(value: object) -> str:
     number = float(value)
     if abs(number) < 0.005:
         number = 0.0
-    return formatar_reais(number)
+    formatted = f"{number:,.2f}".replace(",", "X").replace(".", ",")
+    return f"R$ {formatted.replace('X', '.')}"
 
 
 def format_percentage_pt_br(value: object) -> str:
@@ -222,7 +205,7 @@ def prepare_results(
     final: pd.DataFrame,
     detail_tables: Mapping[str, object] | None = None,
 ) -> pd.DataFrame:
-    """Prepara a fila D2/D3/D4 para apresentação, sem mudar os resultados."""
+    """Normaliza somente os campos necessários à apresentação dos resultados."""
     detail_tables = detail_tables or {}
     if (
         not isinstance(final, pd.DataFrame)
@@ -264,20 +247,6 @@ def prepare_results(
     ).reset_index(drop=True)
 
 
-def prepare_dimension_results(
-    ctx: Mapping[str, object],
-    prefix: str,
-) -> pd.DataFrame:
-    """Monta a visão de uma dimensão sem alterar o DataFrame consolidado."""
-    final = ctx.get("final", pd.DataFrame())
-    prepared = prepare_results(final, ctx)
-    if prepared.empty:
-        return prepared
-    return prepared[
-        prepared["Dimensão"].str.startswith(prefix.upper())
-    ].reset_index(drop=True)
-
-
 def summarize_dimension(data: pd.DataFrame) -> dict[str, float | int]:
     """Resume a dimensão com a mesma semântica do diagnóstico consolidado."""
     statuses = data.get("_status", pd.Series(dtype="object"))
@@ -296,52 +265,6 @@ def summarize_dimension(data: pd.DataFrame) -> dict[str, float | int]:
         "conclusive": conclusive,
         "conformity_percent": 100 * conforming / conclusive if conclusive else 0.0,
     }
-
-
-def filter_dimension_results(
-    data: pd.DataFrame,
-    view: str,
-    query: str = "",
-) -> pd.DataFrame:
-    """Filtra a fila visível por situação e busca textual."""
-    allowed = FILTER_STATUSES.get(view, FILTER_STATUSES["Prioridades"])
-    filtered = data[data["_status"].isin(allowed)].copy()
-    normalized_query = query.casefold().strip()
-    if normalized_query:
-        searchable = (
-            filtered["Dimensão"].map(_display_text)
-            + " "
-            + filtered["Descrição da Dimensão"].map(_display_text)
-            + " "
-            + filtered["Situação"].map(_display_text)
-        ).str.casefold()
-        filtered = filtered[searchable.str.contains(normalized_query, regex=False)]
-    return filtered.reset_index(drop=True)
-
-
-def filter_results(
-    data: pd.DataFrame,
-    view: str,
-    dimension: str = "Todas",
-    query: str = "",
-) -> pd.DataFrame:
-    """Aplica os filtros do explorador, preservando a ordenação de risco."""
-    filtered = filter_dimension_results(data, view, query)
-    if dimension in {"D2", "D3", "D4"}:
-        filtered = filtered[filtered["Grupo"] == dimension]
-    return filtered.reset_index(drop=True)
-
-
-def result_option_label(row: pd.Series) -> str:
-    """Rótulo completo usado no seletor de uma verificação."""
-    description = _display_text(row.get("Descrição da Dimensão"), "Descrição não informada")
-    if len(description) > 92:
-        description = f"{description[:89].rstrip()}…"
-    return (
-        f"{_display_text(row.get('Indicador'))} "
-        f"{_display_text(row.get('Dimensão'))} · {description} · "
-        f"{_display_text(row.get('Situação'))}"
-    )
 
 
 def _render_status_message(status: DiagnosticStatus) -> None:
@@ -369,24 +292,6 @@ def _render_status_message(status: DiagnosticStatus) -> None:
     }
     renderer, message = messages[status]
     renderer(message)
-
-
-def _render_selected_result(
-    row: pd.Series,
-    detail_tables: Mapping[str, object],
-    key_prefix: str,
-) -> None:
-    """Mantém o cartão de detalhe usado pelo painel legado."""
-    code = _display_text(row.get("Dimensão"))
-    status = row["_status"]
-    status_slug = STATUS_SLUGS[status]
-
-    with st.container(
-        border=True,
-        key=f"result_detail_{status_slug}_{key_prefix}_{code}",
-    ):
-        st.markdown(f"#### {code}")
-        _render_result_content(row, detail_tables)
 
 
 def _render_result_content(
@@ -537,105 +442,14 @@ def render_results_explorer(
                 )
 
 
-def render_dimension_panel(
-    ctx: Mapping[str, object],
-    prefix: str,
-    title: str,
-    *,
-    key_prefix: str | None = None,
-) -> None:
-    """Renderiza um dashboard de dimensão no contêiner Streamlit atual.
-
-    Pode ser chamado dentro de uma aba, contêiner ou diretamente na página.
-    ``key_prefix`` deve ser único quando mais de um painel estiver visível.
-    """
-    widget_key = key_prefix or prefix.rstrip("_").lower()
-    data = prepare_dimension_results(ctx, prefix)
-
-    st.subheader(title)
-    if data.empty:
-        st.info("Nenhuma verificação disponível para este grupo.")
-        return
-
-    summary = summarize_dimension(data)
-    metric_columns = st.columns(4)
-    metric_columns[0].metric("Divergências", summary["divergences"])
-    metric_columns[1].metric("Conformes", summary["conforming"])
-    metric_columns[2].metric("Inconclusivos", summary["inconclusive"])
-    metric_columns[3].metric(
-        "Conformidade",
-        f"{summary['conformity_percent']:.1f}%",
-        help="Percentual de conformes entre os resultados conclusivos.",
-    )
-
-    filter_column, search_column = st.columns([3, 2])
-    view = filter_column.segmented_control(
-        "Exibir",
-        options=list(FILTER_STATUSES),
-        default="Prioridades",
-        key=f"{widget_key}_result_view",
-        help="Prioridades reúne divergências, falhas técnicas e dados insuficientes.",
-    )
-    query = search_column.text_input(
-        "Buscar verificação",
-        placeholder="Código, descrição ou situação",
-        key=f"{widget_key}_result_search",
-    )
-    filtered = filter_dimension_results(data, view or "Prioridades", query)
-
-    if filtered.empty:
-        if view == "Prioridades" and not query:
-            st.success("Nenhuma prioridade nesta dimensão.")
-        else:
-            st.info("Nenhum resultado corresponde aos filtros selecionados.")
-        return
-
-    overview = filtered[
-        ["Indicador", "Dimensão", "Descrição da Dimensão", "Situação", "Evidência"]
-    ].copy()
-    st.dataframe(
-        overview,
-        width="stretch",
-        hide_index=True,
-        height=max(122, min(367, 38 + len(overview) * 33)),
-        column_config={
-            "Indicador": st.column_config.TextColumn("", width="small"),
-            "Dimensão": st.column_config.TextColumn("Código", width="small"),
-            "Descrição da Dimensão": st.column_config.TextColumn(
-                "Verificação", width="large"
-            ),
-            "Situação": st.column_config.TextColumn("Situação", width="medium"),
-            "Evidência": st.column_config.TextColumn("Evidência", width="small"),
-        },
-    )
-
-    records = filtered.to_dict("records")
-    selected_code = st.selectbox(
-        "Detalhar uma verificação",
-        options=[row["Dimensão"] for row in records],
-        format_func=lambda code: result_option_label(
-            filtered.loc[filtered["Dimensão"] == code].iloc[0]
-        ),
-        key=f"{widget_key}_selected_result",
-    )
-    selected = filtered.loc[filtered["Dimensão"] == selected_code].iloc[0]
-    _render_selected_result(selected, ctx, widget_key)
-
-
 __all__ = [
-    "FILTER_STATUSES",
     "STATUS_ICONS",
     "STATUS_LABELS",
-    "filter_dimension_results",
-    "filter_results",
-    "prepare_results",
-    "prepare_dimension_results",
-    "render_dimension_panel",
-    "render_results_explorer",
-    "result_option_label",
     "format_currency_pt_br",
     "format_decimal_pt_br",
     "format_percentage_pt_br",
+    "prepare_results",
+    "render_results_explorer",
     "style_evidence_table",
     "sort_results_numerically",
     "summarize_dimension",

@@ -1,1 +1,1 @@
-"""Componentes de interface Streamlit por dimensão."""
+"""Componentes Streamlit para resultados e exportações."""
