@@ -1,0 +1,73 @@
+﻿codigo;titulo;relatorio
+D2_00044;Avalia a igualdade das receitas arrecadadas na MSC de encerramento e no Anexo I-C da DCA;MSC DCA
+D2_00046;Avalia a igualdade das receitas com tributos municipais na MSC de encerramento e no Anexo I-C da DCA;MSC DCA
+D2_00048;Verifica a igualdade das receitas municipais com transferências constitucionais na MSC de dezembro e no Anexo I-C da DCA;MSC DCA
+D2_00049;Verifica a igualdade das Despesas Orçamentárias empenhadas, liquidadas e pagas na MSC de encerramento e no Anexo I-D da DCA;MSC DCA
+D2_00050;Verifica a igualdade dos Restos a Pagar processados e não processados na MSC de encerramento e no Anexo I-D da DCA;MSC DCA
+D2_00058;Avalia se os valores de VPA e VPD com Fundeb estão iguais entre a MSC de encerramento e o Anexo I-HI da DCA;MSC DCA
+D2_00069;Avalia se o valor de despesas exceto-intra na função 09 (Prev. Social) é igual entre a MSC de encerramento e o Anexo I-E da DCA;MSC DCA
+D2_00070;Avalia se o valor de despesas exceto-intra na função 10 (Saúde) é igual entre a MSC de encerramento e o Anexo I-E da DCA;MSC DCA
+D2_00071;Avalia se o valor de despesas exceto-intra na função 12 (Educação) é igual entre a MSC de encerramento e o Anexo I-E da DCA;MSC DCA
+D2_00072;Avalia se o valor de despesas exceto-intra nas funções diferentes de 09, 10 e 12 é igual entre a MSC de encerramento e o Anexo I-E da DCA;MSC DCA
+D2_00073;Avalia se o valor de despesas intraorçamentárias com detalhamento de função/subfunção é igual entre a MSC de encerramento e o Anexo I-E da DCA;MSC DCA
+D2_00074;Avalia a igualdade entre os saldos finais de RPP pagos e RPNP pagos na MSC de Encerramento e no Anexo I-F da DCA;MSC DCA
+D2_00100;Compara os valores de execução de restos a pagar da função saúde do Anexo I-G da DCA com a MSC de encerramento. Apenas valores exceto-intra.;MSC DCA
+D2_00101;Compara os valores de execução de restos a pagar da função educação do Anexo I-G da DCA com a MSC de encerramento. Apenas valores exceto-intra.;MSC DCA
+D2_00102;Compara os valores de execução de restos a pagar da função previdência social do Anexo I-G da DCA com a MSC de encerramento. Apenas valores exceto-intra.;MSC DCA
+D2_00103;Compara os valores de execução de restos a pagar de todas as funções (exceto função 09, 10 e 12) do Anexo I-G da DCA com a MSC de encerramento. Apenas valores exceto-intra.;MSC DCA
+D2_00104;Compara os valores de execução de restos a pagar intra do Anexo I-G da DCA com a MSC de encerramento.;MSC DCA
+D3_00002;Igualdade da Informação de despesas orçamentárias entre os anexos 1 e 2 do RREO;RREO
+D3_00005;Igualdade da Receita Corrente Líquida (RCL) entre o Anexo 03 do RREO e os Anexos 01, 02, 03 e 04 do RGF do poder executivo;RREO RGF
+D3_00006;Igualdade da Dívida Consolidada Líquida (DCL) entre o Anexo 06 do RREO e o Anexo 02 do RGF do poder executivo;RREO RGF
+D3_00008;Igualdade dos restos a pagar não processados entre o Anexo 01 do RREO e o Anexo 05 do RGF de todos os poderes/órgãos;RREO RGF
+D3_00009;Igualdade dos restos a pagar processados e não processados entre o Anexo 07 do RREO e o Anexo 05 do RGF de todos os poderes/órgãos;RREO RGF
+D3_00010;Igualdade da Receita Corrente Líquida (RCL) no Anexo 01 do RGF de todos os poderes/órgãos;RGF
+D3_00014;Igualdade das Transferências Obrigatórias da União Relativas às Emendas Individuais nos Anexos 01, 02 e 04 do RGF do poder executivo;RGF
+D3_00015;Igualdade das Transferências Relativas às Emendas Individuais entre o Anexo 03 do RREO e o Anexo 01 do RGF do poder executivo;RGF RREO
+D3_00016;Igualdade das Transferências Relativas às Emendas de bancada entre o Anexo 03 do RREO e o Anexo 01 do RGF do poder executivo;RGF RREO
+D3_00017;Igualdade entre os Restos a Pagar (Processados e Não-Processados) Pagos no Exercício do Anexo 6 do RREO com os Restos a Pagar (Processados e Não-Processados) Pagos do Anexo 7 do RREO;RREO
+D3_00022;"Igualdade das ""Receitas Correntes Orçamentárias"" e ""Receitas Correntes Intraorçamentárias"" no Anexo 1 do RREO e dos valores da MSC de dezembro.";MSC de Dezembro RREO
+D3_00023;"Igualdade das ""Receitas de Capital Orçamentárias"" e ""Receitas de Capital Intraorçamentárias"" no Anexo 1 do RREO e da MSC de dezembro.";MSC de Dezembro RREO
+D3_00024;"Igualdade das ""Despesas Correntes Orçamentárias"" e ""Despesas Correntes Intraorçamentárias"" no Anexo 1 do RREO e dos valores da MSC de dezembro.";MSC de Dezembro RREO
+D3_00025;"Igualdade das ""Despesas de Capital Orçamentárias"" e ""Despesas de Capital Intraorçamentárias"" no Anexo 1 do RREO e da MSC de dezembro.";MSC de Dezembro RREO
+D3_00026;Verifica os valores de Caixa e Equivalentes de Caixa por grupos de Fontes de Recursos do Anexo 5 do RGF;MSC de Dezembro RREO
+D3_00027;Verifica a igualdade entre Dotação atualizada, Despesas empenhadas até o bimestre, Despesas Liquidadas até o bimestre nos Anexos 1 e 6;RREO
+D3_00028;"Igualdade no total das ""Receitas Realizadas Até o Bimestre"" - Anexo 1 e Anexo 6.";RREO
+D3_00030;Verificação de igualdade entre o total de receitas previdenciárias, Anexo 4 com o Anexo 6 do RREO;RREO
+D3_00032;Verificação de igualdade de Recursos Arrecadados em Exercícios Anteriores (RPPS) entre os anexos 1 e 6 do RREO.;RREO
+D3_00033;Verificação de igualdade de Superávit Financeiro Utilizado para Créditos Adicionais entre os anexos 1 e 6 do RREO.;RREO
+D3_00034;Verificação de igualdade de Reserva do RPPS entre os anexos 1, 4 e 6 do RREO.;RREO
+D3_00035;Verificação de igualdade de Reserva de Contingência entre os anexos 1 e 6 do RREO.;RREO
+D3_00037;Verificação da igualdade de Investimentos (intra + exceto intra) do Anexo 1 e do Anexo 9 do RREO.;RREO
+D3_00038;Verificação da igualdade de Inversões Financeiras (intra + exceto intra) do Anexo 1 e do Anexo 9 do RREO.;RREO
+D3_00039;Verificação da igualdade de Amortização da Dívida (intra + exceto intra) do Anexo 1 e do Anexo 9 do RREO.;RREO
+D3_00040;Verificação da igualdade de Receitas de Operações de crédito do Anexo 1 e do Anexo 9 do RREO.;RREO
+D3_00044;Igualdade de Transferências da União relativas a remuneração dos agentes comunitários de saúde e de combate às endemias.;RREO
+D3_00047;"Verifica a igualdade do valor da linha ""Valor"", do quadro ""RESERVA ORÇAMENTÁRIA DO RPPS"" do Anexo 4 RREO com o valor a linha "" Reserva Orçamentária do RPPS"", quadro ""Informações Adicionais"" do Anexo 6 RREO";RREO
+D4_00001;Igualdade da receita realizada entre o Anexo I-C da DCA e o Anexo 01 do RREO 6ºB.;DCA RREO
+D4_00002;Igualdade da execução da despesa entre o Anexo I-D da DCA e o Anexo 01 do RREO 6ºB.;DCA RREO
+D4_00003;Igualdade da execução da despesa por função entre o Anexo I-E da DCA e o Anexo 02 do RREO 6ºB (exceto intraorçamentária).;DCA RREO
+D4_00004;Igualdade da execução da despesa por função entre o Anexo I-E da DCA e o Anexo 02 do RREO 6ºB (intraorçamentária).;DCA RREO
+D4_00005;Igualdade dos restos a pagar não processados e processados entre o Anexo I-F da DCA e o Anexo 07 do RREO 6ºB.;DCA RREO
+D4_00006;Igualdade dos restos a pagar não processados entre o Anexo I-G da DCA e o Anexo 07 do RREO 6ºB.;DCA RREO
+D4_00007;Igualdade dos restos a pagar processados entre o Anexo I-G da DCA e o Anexo 07 do RREO 6ºB.;DCA RREO
+D4_00010;Igualdade das receitas com tributos municipais entre o Anexo I-C da DCA e o Anexo 03 do RREO 6ºB.;DCA RREO
+D4_00012;Igualdade das transferências municipais entre o Anexo I-C da DCA e o Anexo 03 do RREO 6ºB.;DCA RREO
+D4_00017;Igualdade das contrib. dos servidores e compensações financeiras entre o Anexo I-C da DCA e o Anexo 03 do RREO 6ºB.;DCA RREO
+D4_00019;Igualdade do valor das despesas de capital entre o Anexo I-D da DCA e o Anexo 09 do RREO 6ºB.;DCA RREO
+D4_00020;Igualdade nas receitas arrecadadas na MSC de dezembro e no Anexo 01 do RREO 6ºB.;MSC RREO
+D4_00022;Igualdade nas receitas com tributos municipais na MSC de dezembro e no Anexo 03 do RREO 6ºB.;MSC RREO
+D4_00024;Igualdade nas receitas municipais com transferências constitucionais na MSC de dezembro e no Anexo 03 do RREO 6ºB.;MSC RREO
+D4_00025;Igualdade das Despesas Orçamentárias empenhadas, liquidadas e pagas na MSC de dezembro e no RREO 6ºB.;MSC RREO
+D4_00026;Igualdade dos Restos a Pagar não processados no Anexo 01 do RREO 6ºB e na MSC de dezembro.;MSC RREO
+D4_00029;Avalia se o valor de despesas exceto-intra na função 09 (Prev. Social) é igual entre a MSC de Dezembro e o Anexo 02 do RREO.;MSC RREO
+D4_00030;Avalia se o valor de despesas exceto-intra na função 10 (Saúde) é igual entre a MSC de Dezembro e o Anexo 02 do RREO.;MSC RREO
+D4_00031;Avalia se o valor de despesas exceto-intra na função 12 (Educação) é igual entre a MSC de Dezembro e o Anexo 02 do RREO.;MSC RREO
+D4_00032;Avalia se o valor de despesas exceto-intra nas funções diferentes de 09, 10 e 12 é igual entre a MSC de Dezembro e o Anexo 02 do RREO.;MSC RREO
+D4_00033;Avalia se o valor de despesas intraorçamentárias com detalhamento de função/subfunção é igual entre a MSC de Dezembro e o Anexo 02 do RREO.;MSC RREO
+D4_00034;Avalia a igualdade entre os saldos finais de RPP pagos e RPNP pagos na MSC de Dezembro e no Anexo 07 do RREO.;MSC RREO
+D4_00038;Igualdade nas receitas de Tributos ( IPTU, ISS, ITBI, IRRF ) entre os Anexos VI RREO X MSC de dezembro.;MSC RREO
+D4_00040;Igualdade no valor das transferências constitucionais ( Cota-Parte do FPM, Cota-Parte do ICMS, Cota-Parte do IPVA, Cota-Parte do ITR e Transferências do FUNDEB ) entre os anexos VI RREO X MSC de dezembro.;MSC RREO
+D4_00043;Igualdade entre os valores de Recursos Não Vinculados às Disponibilidades de Caixa e aos Restos a Pagar Processados e Não Processados de exercícios anteriores com os saldos finais da MSC de dezembro.;MSC RGF
+D4_00046;Verificação da igualdade nas receitas (Contribuições, Receita Patrimonial, Receita Agropecuária, Receita Industrial e Receita de Serviços) entre os Anexos 3 do RREO com os valores da DCA - Anexo I-C;DCA RREO
+D4_00047;Verificação da igualdade dos valores das deduções do Fundeb na DCA - Anexo I-C com os valores da dedução de Receita para Formação do FUNDEB do Anexo 3 do RREO;DCA RREO

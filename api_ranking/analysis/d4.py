@@ -4,6 +4,17 @@ import pandas as pd
 from api_ranking.analysis.d1 import _fonte_msc_codigo_e_tres_digitos
 
 
+def _somar_valores_ou_none(df):
+    """Soma valores numéricos, distinguindo ausência de dados de valor zero."""
+    if not isinstance(df, pd.DataFrame) or df.empty or 'valor' not in df.columns:
+        return None
+
+    valores = pd.to_numeric(df['valor'], errors='coerce')
+    if not valores.notna().any():
+        return None
+    return float(valores.sum())
+
+
 def d4_00001(df_rreo_1, df_dca_c):
     rec_rreo_d4 = df_rreo_1.query('coluna == "Até o Bimestre (c)" & cod_conta == "TotalReceitas"')
     rec_rreo_d4 = rec_rreo_d4.copy()
@@ -695,52 +706,80 @@ def d4_00012(df_rreo_3, df_dca_c, tipo_ente):
 
 
 def d4_00017(df_rreo_3, df_dca_c):
-    contrib_serv_rreo_3 = df_rreo_3.query(
-        'coluna == "TOTAL (ÚLTIMOS 12 MESES)" & cod_conta == "ContribuicaoDoServidorParaOPlanoDePrevidencia"'
-    ).copy()
-    contrib_serv_rreo_3['dimensao'] = 'D4_00017_Contribuições dos Servidores'
-    contrib_serv_rreo_3 = contrib_serv_rreo_3.filter(items=['dimensao', 'valor'])
+    metricas = (
+        (
+            'D4_00017_Contribuições dos Servidores',
+            'ContribuicaoDoServidorParaOPlanoDePrevidencia',
+            'RO1.2.1.5.00.0.0',
+        ),
+        (
+            'D4_00017_Compensações Financeiras',
+            'CompensacaoFinanceiraEntreRegimesPrevidencia',
+            'RO1.9.9.9.03.0.0',
+        ),
+    )
+    colunas_rreo = {'coluna', 'cod_conta', 'valor'}
+    colunas_dca = {'cod_conta', 'valor'}
+    rreo_valido = isinstance(df_rreo_3, pd.DataFrame) and colunas_rreo.issubset(df_rreo_3.columns)
+    dca_valida = isinstance(df_dca_c, pd.DataFrame) and colunas_dca.issubset(df_dca_c.columns)
 
-    comp_fin_rreo_3 = df_rreo_3.query(
-        'coluna == "TOTAL (ÚLTIMOS 12 MESES)" & cod_conta == "CompensacaoFinanceiraEntreRegimesPrevidencia"'
-    ).copy()
-    comp_fin_rreo_3['dimensao'] = 'D4_00017_Compensações Financeiras'
-    comp_fin_rreo_3 = comp_fin_rreo_3.filter(items=['dimensao', 'valor'])
+    detalhes = []
+    ausencias = []
+    for dimensao, cod_rreo, cod_dca in metricas:
+        if rreo_valido:
+            alvo_rreo = df_rreo_3.loc[
+                (df_rreo_3['coluna'] == 'TOTAL (ÚLTIMOS 12 MESES)')
+                & (df_rreo_3['cod_conta'] == cod_rreo)
+            ]
+        else:
+            alvo_rreo = pd.DataFrame()
 
-    contrib_serv_dca_c = df_dca_c.query('cod_conta == "RO1.2.1.5.00.0.0"').copy()
-    contrib_serv_dca_c['dimensao'] = 'D4_00017_Contribuições dos Servidores'
-    contrib_serv_dca_c = contrib_serv_dca_c.filter(items=['dimensao', 'valor'])
-    contrib_serv_dca_c = contrib_serv_dca_c.groupby('dimensao').agg({'valor': 'sum'})
+        if dca_valida:
+            alvo_dca = df_dca_c.loc[df_dca_c['cod_conta'] == cod_dca]
+        else:
+            alvo_dca = pd.DataFrame()
 
-    comp_fin_dca_c = df_dca_c.query('cod_conta == "RO1.9.9.9.03.0.0"').copy()
-    comp_fin_dca_c['dimensao'] = 'D4_00017_Compensações Financeiras'
-    comp_fin_dca_c = comp_fin_dca_c.filter(items=['dimensao', 'valor'])
+        valor_rreo = _somar_valores_ou_none(alvo_rreo)
+        valor_dca = _somar_valores_ou_none(alvo_dca)
+        if valor_rreo is None:
+            ausencias.append(f'{dimensao} no RREO')
+        if valor_dca is None:
+            ausencias.append(f'{dimensao} na DCA')
 
-    d4_00017_contrib_serv = contrib_serv_rreo_3.merge(contrib_serv_dca_c, on='dimensao')
-    d4_00017_contrib_serv['DIF'] = d4_00017_contrib_serv['valor_x'] - d4_00017_contrib_serv['valor_y']
-    d4_00017_contrib_serv.columns = ['Dimensão', 'RREO', 'DCA', 'DIF']
+        detalhes.append({
+            'Dimensão': dimensao,
+            'RREO': np.nan if valor_rreo is None else valor_rreo,
+            'DCA': np.nan if valor_dca is None else valor_dca,
+            'DIF': (
+                np.nan
+                if valor_rreo is None or valor_dca is None
+                else valor_rreo - valor_dca
+            ),
+        })
 
-    d4_00017_comp_fin = comp_fin_rreo_3.merge(comp_fin_dca_c, on='dimensao')
-    d4_00017_comp_fin['DIF'] = d4_00017_comp_fin['valor_x'] - d4_00017_comp_fin['valor_y']
-    d4_00017_comp_fin.columns = ['Dimensão', 'RREO', 'DCA', 'DIF']
-
-    d4_00017_t = pd.concat([d4_00017_contrib_serv, d4_00017_comp_fin])
-
-    condicao = d4_00017_t['DIF'] == 0
-
-    if condicao.any():
-        resposta_d4_00017 = 'OK'
-        nota_d4_00017 = 1.00
+    d4_00017_t = pd.DataFrame(detalhes, columns=['Dimensão', 'RREO', 'DCA', 'DIF'])
+    if ausencias:
+        resposta_d4_00017 = 'N/A'
+        nota_d4_00017 = None
+        observacao = 'Dados insuficientes: ' + '; '.join(ausencias)
     else:
-        resposta_d4_00017 = 'ERRO'
-        nota_d4_00017 = 0.00
+        tolerancia = 0.01
+        todas_conferem = np.isclose(
+            d4_00017_t['DIF'].to_numpy(dtype=float),
+            0,
+            atol=tolerancia,
+            rtol=0,
+        ).all()
+        resposta_d4_00017 = 'OK' if todas_conferem else 'ERRO'
+        nota_d4_00017 = 1.00 if todas_conferem else 0.00
+        observacao = 'Anexo I-C da DCA e o Anexo 03 do RREO'
 
     d4_00017 = pd.DataFrame([{
         'Dimensão': 'D4_00017',
         'Resposta': resposta_d4_00017,
         'Descrição da Dimensão': 'Igualdade das contrib. dos servidores e compensações financeiras',
         'Nota': nota_d4_00017,
-        'OBS': 'Anexo I-C da DCA e o Anexo 03 do RREO'
+        'OBS': observacao
     }])
 
     return d4_00017, d4_00017_t
@@ -1077,33 +1116,54 @@ def d4_00027(df_dca_ab, df_rgf_2e):
     """
     Disponibilidade de Caixa Bruta do RGF Anexo 2 <= Caixa e Equivalentes (DCA AB).
     """
-    caixa_dca = df_dca_ab.query('cod_conta == "P1.1.1.0.0.00.00"')
-    caixa_dca = caixa_dca[['cod_conta', 'valor']]
+    colunas_dca = {'cod_conta', 'valor'}
+    colunas_rgf = {'cod_conta', 'coluna', 'valor'}
+    dca_valida = isinstance(df_dca_ab, pd.DataFrame) and colunas_dca.issubset(df_dca_ab.columns)
+    rgf_valido = isinstance(df_rgf_2e, pd.DataFrame) and colunas_rgf.issubset(df_rgf_2e.columns)
 
-    filtro = df_rgf_2e['cod_conta'].str.contains('DisponibilidadeDeCaixaBruta', case=False, na=False)
-    caixa_rgf2 = df_rgf_2e[filtro]
-    caixa_rgf2 = caixa_rgf2.query('coluna == "Até o 3º Quadrimestre"')
-    caixa_rgf2 = caixa_rgf2[['cod_conta', 'valor']]
+    caixa_dca = (
+        df_dca_ab.loc[df_dca_ab['cod_conta'] == 'P1.1.1.0.0.00.00']
+        if dca_valida else pd.DataFrame()
+    )
+    caixa_rgf2 = (
+        df_rgf_2e.loc[
+            df_rgf_2e['cod_conta'].str.contains('DisponibilidadeDeCaixaBruta', case=False, na=False)
+            & (df_rgf_2e['coluna'] == 'Até o 3º Quadrimestre')
+        ]
+        if rgf_valido else pd.DataFrame()
+    )
 
-    d4_00027_t = pd.concat([caixa_dca, caixa_rgf2]).reset_index(drop=True)
-    d4_00027_t["DIF"] = d4_00027_t['valor'].diff()
-    d4_00027_t.loc[0, 'DIF'] = 0
-    d4_00027_t.loc[0, 'cod_conta'] = "CEC_DCA-AB"
-    d4_00027_t.loc[1, 'cod_conta'] = "CEC_RGF-2"
+    valor_dca = _somar_valores_ou_none(caixa_dca)
+    valor_rgf = _somar_valores_ou_none(caixa_rgf2)
+    diferenca = None if valor_dca is None or valor_rgf is None else valor_rgf - valor_dca
+    d4_00027_t = pd.DataFrame([{
+        'Dimensão': 'Disponibilidade de Caixa Bruta',
+        'DCA': np.nan if valor_dca is None else valor_dca,
+        'RGF': np.nan if valor_rgf is None else valor_rgf,
+        'DIF': np.nan if diferenca is None else diferenca,
+    }])
 
-    if (d4_00027_t['DIF'] > 0).any():
-        resposta_d4_00027 = 'ERRO'
-        nota_d4_00027 = 0.00
+    ausencias = []
+    if valor_dca is None:
+        ausencias.append('Caixa e Equivalentes na DCA AB')
+    if valor_rgf is None:
+        ausencias.append('Disponibilidade de Caixa Bruta no RGF Anexo 2')
+
+    if ausencias:
+        resposta_d4_00027 = 'N/A'
+        nota_d4_00027 = None
+        observacao = 'Dados insuficientes: ' + '; '.join(ausencias)
     else:
-        resposta_d4_00027 = 'OK'
-        nota_d4_00027 = 1.00
+        resposta_d4_00027 = 'ERRO' if diferenca > 0 else 'OK'
+        nota_d4_00027 = 0.00 if diferenca > 0 else 1.00
+        observacao = 'RGF 2 e DCA AB'
 
     d4_00027 = pd.DataFrame([{
         'Dimensão': 'D4_00027',
         'Resposta': resposta_d4_00027,
         'Descrição da Dimensão': 'Disponibilidade de Caixa Bruta do Anexo 2 do RGF <= Caixa e Equivalentes (111) da DCA',
         'Nota': nota_d4_00027,
-        'OBS': 'RGF 2 e DCA AB'
+        'OBS': observacao
     }])
 
     return d4_00027, d4_00027_t
@@ -1113,41 +1173,58 @@ def d4_00028(df_dca_ab, rgf_total):
     """
     Disponibilidade de Caixa Bruta do RGF Anexo 5 <= Caixa e Equivalentes (DCA AB).
     """
-    caixa_dca = df_dca_ab.query('cod_conta == "P1.1.1.0.0.00.00"')
-    caixa_dca = caixa_dca[['cod_conta', 'valor']]
+    colunas_dca = {'cod_conta', 'valor'}
+    colunas_rgf = {'cod_conta', 'conta', 'valor'}
+    dca_valida = isinstance(df_dca_ab, pd.DataFrame) and colunas_dca.issubset(df_dca_ab.columns)
+    rgf_valido = isinstance(rgf_total, pd.DataFrame) and colunas_rgf.issubset(rgf_total.columns)
 
-    filtro = rgf_total['cod_conta'].str.contains('DisponibilidadeDeCaixaBruta', case=False, na=False)
-    caixa_rgf5_t = rgf_total[filtro]
-    caixa_rgf5_o = caixa_rgf5_t.query('conta == "TOTAL (III) = (I + II)"')
-    caixa_rgf5_o = caixa_rgf5_o[['cod_conta', 'valor']]
-    caixa_rgf5_e = caixa_rgf5_t.query('conta == "TOTAL (IV) = (I + II + III)"')
-    caixa_rgf5_e = caixa_rgf5_e[['cod_conta', 'valor']]
-    caixa_rgf_5 = pd.concat([caixa_rgf5_e, caixa_rgf5_o]).reset_index(drop=True)
+    caixa_dca = (
+        df_dca_ab.loc[df_dca_ab['cod_conta'] == 'P1.1.1.0.0.00.00']
+        if dca_valida else pd.DataFrame()
+    )
+    contas_totais_rgf = {
+        'TOTAL (III) = (I + II)',
+        'TOTAL (IV) = (I + II + III)',
+    }
+    caixa_rgf5 = (
+        rgf_total.loc[
+            rgf_total['cod_conta'].str.contains('DisponibilidadeDeCaixaBruta', case=False, na=False)
+            & rgf_total['conta'].isin(contas_totais_rgf)
+        ]
+        if rgf_valido else pd.DataFrame()
+    )
 
-    total_valor = caixa_rgf_5['valor'].sum()
-    nova_linha = pd.DataFrame([{'cod_conta': 'TOTAL', 'valor': total_valor}])
-    caixa_rgf_5 = pd.concat([caixa_rgf_5, nova_linha], ignore_index=True)
-    caixa_rgf_5 = caixa_rgf_5.drop(caixa_rgf_5.index[:-1])
+    valor_dca = _somar_valores_ou_none(caixa_dca)
+    valor_rgf = _somar_valores_ou_none(caixa_rgf5)
+    diferenca = None if valor_dca is None or valor_rgf is None else valor_rgf - valor_dca
+    d4_00028_t = pd.DataFrame([{
+        'Dimensão': 'Disponibilidade de Caixa Bruta',
+        'DCA': np.nan if valor_dca is None else valor_dca,
+        'RGF': np.nan if valor_rgf is None else valor_rgf,
+        'DIF': np.nan if diferenca is None else diferenca,
+    }])
 
-    d4_00028_t = pd.concat([caixa_dca, caixa_rgf_5]).reset_index(drop=True)
-    d4_00028_t["DIF"] = d4_00028_t['valor'].diff()
-    d4_00028_t.loc[0, 'DIF'] = 0
-    d4_00028_t.loc[0, 'cod_conta'] = "CEC_DCA-AB"
-    d4_00028_t.loc[1, 'cod_conta'] = "CEC_RGF-5"
+    ausencias = []
+    if valor_dca is None:
+        ausencias.append('Caixa e Equivalentes na DCA AB')
+    if valor_rgf is None:
+        ausencias.append('Disponibilidade de Caixa Bruta no RGF Anexo 5')
 
-    if (d4_00028_t['DIF'] > 0).any():
-        resposta_d4_00028 = 'ERRO'
-        nota_d4_00028 = 0.00
+    if ausencias:
+        resposta_d4_00028 = 'N/A'
+        nota_d4_00028 = None
+        observacao = 'Dados insuficientes: ' + '; '.join(ausencias)
     else:
-        resposta_d4_00028 = 'OK'
-        nota_d4_00028 = 1.00
+        resposta_d4_00028 = 'ERRO' if diferenca > 0 else 'OK'
+        nota_d4_00028 = 0.00 if diferenca > 0 else 1.00
+        observacao = 'RGF 5 e DCA AB'
 
     d4_00028 = pd.DataFrame([{
         'Dimensão': 'D4_00028',
         'Resposta': resposta_d4_00028,
         'Descrição da Dimensão': 'Disponibilidade de Caixa Bruta do Anexo 5 do RGF <= Caixa e Equivalentes (111) da DCA',
         'Nota': nota_d4_00028,
-        'OBS': 'RGF 5 e DCA AB'
+        'OBS': observacao
     }])
 
     return d4_00028, d4_00028_t
@@ -1566,6 +1643,109 @@ _D4_00043_PO_LABEL = {
 }
 
 
+def _resultado_cruzamento(codigo, resposta, descricao, observacao):
+    """Monta o retorno resumido comum às verificações D4."""
+    return pd.DataFrame([{
+        'Dimensão': codigo,
+        'Resposta': resposta,
+        'Descrição da Dimensão': descricao,
+        'Nota': 1.00 if resposta == 'OK' else 0.00 if resposta == 'ERRO' else None,
+        'OBS': observacao,
+    }])
+
+
+def _df_disponivel(df, colunas):
+    return (
+        isinstance(df, pd.DataFrame)
+        and not df.empty
+        and set(colunas).issubset(df.columns)
+    )
+
+
+def d4_00043(msc_dez, df_rgf_5e):
+    """Compara recursos não vinculados na MSC de dezembro e no RGF Anexo 5."""
+    codigo = 'D4_00043'
+    descricao = (
+        'CAPAG: Igualdade entre Recursos Não Vinculados nas Disponibilidades de '
+        'Caixa e Restos a Pagar — MSC dezembro × RGF Anexo 5 (Executivo)'
+    )
+    observacao = (
+        'MSC de dezembro (ending_balance), Poder Executivo direto e indireto, '
+        'por fonte de recursos; RGF Anexo 5 do Executivo.'
+    )
+    colunas_msc = {
+        'tipo_valor', 'conta_contabil', 'fonte_recursos', 'poder_orgao', 'valor'
+    }
+    colunas_rgf = {'cod_conta', 'conta', 'valor'}
+
+    if not _df_disponivel(msc_dez, colunas_msc):
+        resumo = _resultado_cruzamento(
+            codigo, 'N/A', descricao,
+            'MSC de dezembro indisponível ou sem as colunas necessárias.',
+        )
+        return resumo, pd.DataFrame()
+    if not _df_disponivel(df_rgf_5e, colunas_rgf):
+        resumo = _resultado_cruzamento(
+            codigo, 'N/A', descricao,
+            'RGF Anexo 5 (Executivo) indisponível ou sem as colunas necessárias.',
+        )
+        return resumo, pd.DataFrame()
+
+    poder_executivo = {'10111', '10112', '10121', '10122', '10131', '10132'}
+    msc = msc_dez.loc[
+        msc_dez['tipo_valor'].astype(str).str.strip().eq('ending_balance')
+    ].copy()
+    msc['_poder'] = (
+        msc['poder_orgao'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+    )
+    msc = msc.loc[msc['_poder'].isin(poder_executivo)].copy()
+    msc['_conta'] = msc['conta_contabil'].astype(str).str.strip()
+    _, _, msc['_fonte3'] = _fonte_msc_codigo_e_tres_digitos(msc['fonte_recursos'])
+    msc['_valor'] = pd.to_numeric(msc['valor'], errors='coerce').fillna(0.0)
+
+    rgf = df_rgf_5e.copy()
+    rgf['_codigo'] = rgf['cod_conta'].astype(str).str.strip()
+    rgf['_conta'] = (
+        rgf['conta'].astype(str).str.strip().str.replace(r'\s+', ' ', regex=True)
+    )
+    rgf['_valor'] = pd.to_numeric(rgf['valor'], errors='coerce').fillna(0.0)
+
+    detalhes = []
+    for linha in _D4_00043_LINHAS:
+        msc_linha = msc.loc[msc['_fonte3'].isin(linha['fr3'])]
+        rgf_linha = rgf.loc[rgf['_conta'].eq(linha['rotulo'])]
+        for coluna in _D4_00043_COLUNAS:
+            valor_msc = float(
+                msc_linha.loc[
+                    msc_linha['_conta'].str.startswith(coluna['msc_prefixos']), '_valor'
+                ].sum()
+            )
+            valor_rgf = float(
+                rgf_linha.loc[
+                    rgf_linha['_codigo'].eq(coluna['rgf_cod_conta']), '_valor'
+                ].sum()
+            )
+            detalhes.append({
+                'Linha (FR)': linha['rotulo'],
+                'Coluna (Tipo de saldo)': coluna['rotulo'],
+                'MSC dez (saldo final)': valor_msc,
+                'RGF Anexo 5 (Executivo)': valor_rgf,
+                'Diferença (MSC − RGF)': round(valor_msc - valor_rgf, 2),
+            })
+
+    detalhe = pd.DataFrame(detalhes)
+    divergentes = int((~np.isclose(
+        detalhe['MSC dez (saldo final)'],
+        detalhe['RGF Anexo 5 (Executivo)'],
+        atol=0.01,
+        rtol=0.0,
+    )).sum())
+    resposta = 'ERRO' if divergentes else 'OK'
+    if divergentes:
+        observacao += f' Células divergentes: {divergentes} de 8.'
+    return _resultado_cruzamento(codigo, resposta, descricao, observacao), detalhe
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # D4_00045 — CAPAG: valores restituíveis MSC (1113* + FR 860/861/862/869, Exec.)
 # x Recursos Extraorçamentários no RGF Anexo 5 (Executivo). Regra: RGF ≥ MSC.
@@ -1580,7 +1760,144 @@ _D4_00043_PO_LABEL = {
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-_REMOVED_ANALYSES_ARITY = {'d4_00009': 2, 'd4_00011': 2, 'd4_00021': 2, 'd4_00023': 2, 'd4_00035': 2, 'd4_00036': 2, 'd4_00037': 2, 'd4_00039': 2, 'd4_00041': 2, 'd4_00042': 2, 'd4_00043': 2, 'd4_00045': 2, 'd4_00046': 2, 'd4_00047': 2, 'd4_00048': 2, 'd4_00049': 2, 'd4_00050': 2, 'd4_00051': 2}
+def d4_00046(df_rreo_3, df_dca_c):
+    """Compara receitas selecionadas do RREO Anexo 3 com a DCA Anexo I-C."""
+    codigo = 'D4_00046'
+    descricao = (
+        'Igualdade nas receitas de Contribuições, Patrimonial, Agropecuária, '
+        'Industrial e Serviços entre o RREO Anexo 3 e a DCA Anexo I-C'
+    )
+    observacao = (
+        'RREO Anexo 3: TOTAL (ÚLTIMOS 12 MESES); DCA Anexo I-C: receitas '
+        'brutas realizadas somadas às outras deduções, registradas com sinal negativo.'
+    )
+    colunas = {'coluna', 'cod_conta', 'valor'}
+    if not _df_disponivel(df_rreo_3, colunas) or not _df_disponivel(df_dca_c, colunas):
+        resumo = _resultado_cruzamento(
+            codigo, 'N/A', descricao,
+            'RREO Anexo 3 e/ou DCA Anexo I-C indisponível ou incompleto.',
+        )
+        return resumo, pd.DataFrame()
+
+    codigos_rreo = (
+        'RREO3ReceitaDeContribuicoes',
+        'RREO3ReceitaPatrimonial',
+        'RREO3ReceitaAgropecuaria',
+        'RREO3ReceitaIndustrial',
+        'RREO3ReceitaDeServicos',
+    )
+    codigos_dca = (
+        'RO1.2.0.0.00.0.0',
+        'RO1.3.0.0.00.0.0',
+        'RO1.4.0.0.00.0.0',
+        'RO1.5.0.0.00.0.0',
+        'RO1.6.0.0.00.0.0',
+    )
+
+    def selecionar(df, coluna, codigos):
+        return df.loc[
+            df['coluna'].astype(str).str.strip().eq(coluna)
+            & df['cod_conta'].astype(str).str.strip().isin(codigos)
+        ]
+
+    rreo = selecionar(df_rreo_3, 'TOTAL (ÚLTIMOS 12 MESES)', codigos_rreo)
+    dca_bruta = selecionar(df_dca_c, 'Receitas Brutas Realizadas', codigos_dca)
+    dca_deducoes = selecionar(df_dca_c, 'Outras Deduções da Receita', codigos_dca)
+
+    valor_rreo = float(pd.to_numeric(rreo['valor'], errors='coerce').fillna(0.0).sum())
+    valor_bruto = float(pd.to_numeric(dca_bruta['valor'], errors='coerce').fillna(0.0).sum())
+    valor_deducoes = float(
+        pd.to_numeric(dca_deducoes['valor'], errors='coerce').fillna(0.0).sum()
+    )
+    valor_dca = valor_bruto + valor_deducoes
+    diferenca = valor_rreo - valor_dca
+    detalhe = pd.DataFrame([
+        {'fonte': 'RREO — Anexo 3', 'valor': valor_rreo},
+        {'fonte': 'DCA — Receitas Brutas Realizadas', 'valor': valor_bruto},
+        {'fonte': 'DCA — Outras Deduções da Receita', 'valor': valor_deducoes},
+        {'fonte': 'DCA — Receita líquida', 'valor': valor_dca},
+        {'fonte': 'Diferença (RREO − DCA líquida)', 'valor': round(diferenca, 2)},
+    ])
+
+    if rreo.empty and dca_bruta.empty and dca_deducoes.empty:
+        resumo = _resultado_cruzamento(
+            codigo, 'N/A', descricao,
+            'Não foram localizadas as linhas previstas no RREO Anexo 3 ou na DCA Anexo I-C.',
+        )
+        return resumo, detalhe
+
+    ausentes = []
+    for conta in codigos_rreo:
+        if not rreo['cod_conta'].astype(str).str.strip().eq(conta).any():
+            ausentes.append(f'RREO sem {conta}')
+    for conta in codigos_dca:
+        if not dca_bruta['cod_conta'].astype(str).str.strip().eq(conta).any():
+            ausentes.append(f'DCA bruta sem {conta}')
+        if not dca_deducoes['cod_conta'].astype(str).str.strip().eq(conta).any():
+            ausentes.append(f'DCA deduções sem {conta}')
+    if ausentes:
+        observacao += ' Ausências parciais tratadas como zero: ' + '; '.join(ausentes) + '.'
+
+    resposta = 'OK' if np.isclose(diferenca, 0.0, atol=0.01, rtol=0.0) else 'ERRO'
+    return _resultado_cruzamento(codigo, resposta, descricao, observacao), detalhe
+
+
+def d4_00047(df_rreo_3, df_dca_c):
+    """Compara a dedução do FUNDEB no RREO Anexo 3 e na DCA Anexo I-C."""
+    codigo = 'D4_00047'
+    descricao = (
+        'Igualdade das deduções do FUNDEB entre o RREO Anexo 3 e a DCA Anexo I-C'
+    )
+    observacao = (
+        'RREO Anexo 3: TOTAL (ÚLTIMOS 12 MESES), dedução para formação do FUNDEB; '
+        'DCA Anexo I-C: Deduções - FUNDEB, TotalReceitas, registrada com sinal negativo.'
+    )
+    colunas = {'coluna', 'cod_conta', 'valor'}
+    if not _df_disponivel(df_rreo_3, colunas) or not _df_disponivel(df_dca_c, colunas):
+        resumo = _resultado_cruzamento(
+            codigo, 'N/A', descricao,
+            'RREO Anexo 3 e/ou DCA Anexo I-C indisponível ou incompleto.',
+        )
+        return resumo, pd.DataFrame()
+
+    rreo = df_rreo_3.loc[
+        df_rreo_3['coluna'].astype(str).str.strip().eq('TOTAL (ÚLTIMOS 12 MESES)')
+        & df_rreo_3['cod_conta'].astype(str).str.strip().eq(
+            'DeducaoDeReceitaParaFormacaoDoFUNDEB'
+        )
+    ]
+    dca = df_dca_c.loc[
+        df_dca_c['coluna'].astype(str).str.strip().eq('Deduções - FUNDEB')
+        & df_dca_c['cod_conta'].astype(str).str.strip().eq('TotalReceitas')
+    ]
+    valor_rreo = float(pd.to_numeric(rreo['valor'], errors='coerce').fillna(0.0).sum())
+    valor_dca = float(pd.to_numeric(dca['valor'], errors='coerce').fillna(0.0).sum())
+    diferenca = valor_rreo + valor_dca
+    detalhe = pd.DataFrame([
+        {'fonte': 'RREO — Anexo 3', 'valor': valor_rreo},
+        {'fonte': 'DCA — Anexo I-C', 'valor': valor_dca},
+        {'fonte': 'Diferença (RREO + DCA)', 'valor': round(diferenca, 2)},
+    ])
+
+    if rreo.empty and dca.empty:
+        resumo = _resultado_cruzamento(
+            codigo, 'N/A', descricao,
+            'Não foram localizadas as linhas previstas no RREO Anexo 3 ou na DCA Anexo I-C.',
+        )
+        return resumo, detalhe
+    ausentes = []
+    if rreo.empty:
+        ausentes.append('linha do RREO')
+    if dca.empty:
+        ausentes.append('linha da DCA')
+    if ausentes:
+        observacao += ' Ausências parciais tratadas como zero: ' + ' e '.join(ausentes) + '.'
+
+    resposta = 'OK' if np.isclose(diferenca, 0.0, atol=0.01, rtol=0.0) else 'ERRO'
+    return _resultado_cruzamento(codigo, resposta, descricao, observacao), detalhe
+
+
+_REMOVED_ANALYSES_ARITY = {'d4_00009': 2, 'd4_00011': 2, 'd4_00021': 2, 'd4_00023': 2, 'd4_00035': 2, 'd4_00036': 2, 'd4_00037': 2, 'd4_00039': 2, 'd4_00041': 2, 'd4_00042': 2, 'd4_00045': 2, 'd4_00048': 2, 'd4_00049': 2, 'd4_00050': 2, 'd4_00051': 2}
 
 
 def _removed_analysis_result(code):

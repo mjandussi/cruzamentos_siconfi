@@ -27,9 +27,26 @@ import pandas as pd
 import numpy as np
 from io import BytesIO
 from pathlib import Path
-from core.utils import convert_df_to_excel, convert_df_to_csv
-from core.layout import setup_page, page_brand
+from core.utils import convert_msc_12_13_to_excel
+from core.layout import (
+    analysis_stepper,
+    resolve_analysis_step,
+    app_footer,
+    page_brand,
+    page_intro,
+    render_main_nav,
+    setup_page,
+)
 from core.auth import is_authed, restricted_ranking_fixed_ente
+from core.diagnostics import (
+    DiagnosticStatus,
+    summarize_results,
+)
+from core.methodology import (
+    SUPPORTED_YEARS,
+    get_crosscheck_counts,
+    get_crosschecks,
+)
 
 import api_ranking.analysis.d1 as d1_analysis
 import api_ranking.analysis.d2_antecipada as d2_ant_analysis
@@ -42,38 +59,15 @@ from api_ranking.services.api_loader import get_extratos, load_all_data_cached, 
 from api_ranking.services.check_types import (detectar_tipo_relatorio, 
             verificar_disponibilidade_demonstrativos, verificacao_disponivel,)
 
-from api_ranking.services.formatting import eh_verificacao_capag, highlight_resposta
-
-from api_ranking.renders.render_d1 import render_tab_d1
-from api_ranking.renders.render_d2_antecipada import render_d2_antecipada
-from api_ranking.renders.render_d2 import render_tab_d2
-from api_ranking.renders.render_d3 import render_tab_d3
-from api_ranking.renders.render_d4 import render_tab_d4
-
-
-def render_main_nav(active: str = "Cruzamentos") -> None:
-    items = [
-        ("Home", "🏠", "pages/00_🏠 Home.py"),
-        ("Cruzamentos", "✅", "pages/01_✅ Cruzamentos do Ranking.py"),
-    ]
-    cols = st.columns(len(items))
-    for idx, (label, icon, path) in enumerate(items):
-        with cols[idx]:
-            if st.button(
-                f"{icon} {label}",
-                key=f"main_nav_v2_{idx}_{label}",
-                type="primary" if label == active else "secondary",
-                use_container_width=True,
-            ) and label != active:
-                st.switch_page(path)
-    st.markdown("<div class='top-nav-spacer'></div>", unsafe_allow_html=True)
+from api_ranking.renders.result_dashboard import render_results_explorer
+from api_ranking.services.formatting import eh_verificacao_capag
 
 
 
 # ----------------- Setup / Auth / Navbar -----------------
 
 setup_page(
-    page_title="CRUZAMENTOS SICONFI - Cruzamentos",
+    page_title="CRUZAMENTOS SICONFI - Validação on-line",
     logo_path="assets/logo-mark.svg",
     show_top_nav=False,
 )
@@ -87,19 +81,16 @@ page_brand(
     show_logout=True, 
 )
 
-render_main_nav(active="Cruzamentos")
-
-# ----------------- Título com cor de fundo -----------------
-st.markdown(
-    """
-    <h1>
-      <span style="background:none;-webkit-text-fill-color:initial;">✅</span>
-      Cruzamentos
-    </h1>
-    """,
-    unsafe_allow_html=True,
+render_main_nav(active="Validação on-line")
+page_intro(
+    "Validação on-line",
+    eyebrow="Dados atuais da API do Siconfi",
+    description=(
+        "Confira a disponibilidade dos demonstrativos, execute as regras do "
+        "exercício e investigue divergências com cobertura metodológica explícita."
+    ),
+    icon="✅",
 )
-st.markdown("---")
 
 
 ####  Variáveis  ####
@@ -138,29 +129,37 @@ UF_IBGE_PREFIXOS = {
 }
 UF_PADRAO_MUNICIPIO = "33"
 
-VERIFICACOES_CRUZAMENTOS = frozenset({
-    "D2_00044", "D2_00046", "D2_00048", "D2_00049", "D2_00050", "D2_00058",
-    "D2_00069", "D2_00070", "D2_00071", "D2_00072", "D2_00073", "D2_00074",
-    "D3_00001", "D3_00002", "D3_00005", "D3_00006", "D3_00008", "D3_00009",
-    "D3_00010", "D3_00014", "D3_00015", "D3_00016", "D3_00022", "D3_00023",
-    "D3_00024", "D3_00025",
-    "D4_00001", "D4_00002", "D4_00003", "D4_00004", "D4_00005", "D4_00006",
-    "D4_00007", "D4_00010", "D4_00012", "D4_00017", "D4_00019", "D4_00020",
-    "D4_00022", "D4_00024", "D4_00025", "D4_00026", "D4_00027", "D4_00028",
-    "D4_00029", "D4_00030", "D4_00031", "D4_00032", "D4_00033", "D4_00034",
-    "D4_00038", "D4_00040",
-})
+_MODULOS_ANALISE = {
+    "D2": d2_dca_analysis,
+    "D3": d3_analysis,
+    "D4": d4_analysis,
+}
 
 
-def filtrar_verificacoes_cruzamentos(df: pd.DataFrame) -> pd.DataFrame:
+def mapear_implementacao(ano_metodologico: int) -> pd.DataFrame:
+    """Compara o escopo da dissertação com as funções concretas do motor."""
+    return pd.DataFrame([
+        {
+            "Dimensão": codigo[:2],
+            "Código": codigo,
+            "Situação": (
+                "Disponível no motor"
+                if codigo.lower() in vars(_MODULOS_ANALISE[codigo[:2]])
+                else "Pendente"
+            ),
+        }
+        for codigo in get_crosschecks(ano_metodologico)
+    ])
+
+def filtrar_verificacoes_cruzamentos(
+    df: pd.DataFrame,
+    ano_metodologico: int,
+) -> pd.DataFrame:
+    """Mantém somente o escopo autoritativo do exercício da dissertação."""
     if df is None or df.empty or "Dimensão" not in df.columns:
         return df
-    return df[df["Dimensão"].astype(str).isin(VERIFICACOES_CRUZAMENTOS)].copy()
-
-# ----------------- Configuração central de comportamento -----------------
-# Consulta pública: desligar esta flag quando a base oficial 2025 estiver homologada.
-FLAG_MODO_CONSULTA_PUBLICA = True
-ANO_INICIO_CONSULTA_PUBLICA = 2025
+    escopo = set(get_crosschecks(ano_metodologico))
+    return df[df["Dimensão"].astype(str).isin(escopo)].copy()
 
 
 
@@ -185,13 +184,13 @@ def _limpar_bundles_exportacao_session():
         "_export_meta",
     ):
         st.session_state.pop(_k, None)
-    # Bytes cacheados de Excel/CSV (chaveados por cod_ano) — usados pelo fragment
-    # de exportação para evitar regenerar a cada re-render.
+    # Bytes cacheados dos dois arquivos Excel (chaveados por cod_ano),
+    # evitando regenerá-los a cada renderização do fragmento.
     for _prefix in (
         "_xlsx_demo_bytes::",
         "_xlsx_demo_err::",
-        "_csv_demo_bytes::",
-        "_csv_demo_err::",
+        "_xlsx_msc_bytes::",
+        "_xlsx_msc_err::",
     ):
         for _kk in [k for k in st.session_state.keys() if str(k).startswith(_prefix)]:
             st.session_state.pop(_kk, None)
@@ -241,7 +240,13 @@ def _bytes_excel_demonstrativos_de_bundle(b: dict) -> bytes:
                     {"Informação": "Data de Extração", "Valor": pd.Timestamp.now().strftime("%d/%m/%Y %H:%M")},
                     {"Informação": "Demonstrativos Disponíveis", "Valor": total_ok},
                     {"Informação": "Demonstrativos Faltantes", "Valor": total_faltando},
-                    {"Informação": "Observação", "Valor": "MSC exportada em arquivo CSV separado (devido ao tamanho)"},
+                    {
+                        "Informação": "Observação",
+                        "Valor": (
+                            "MSC consolidada dos meses 12 (dezembro) e 13 "
+                            "(encerramento) exportada em arquivo Excel separado."
+                        ),
+                    },
                 ]
             )
             resumo.to_excel(writer, sheet_name=_sanitiza_nome_aba_excel("Resumo"), index=False)
@@ -312,39 +317,13 @@ def _chave_ordenacao_dimensao(codigo_dimensao):
 
 
 def _formata_tamanho_bytes(n: int) -> str:
-    """Formata tamanho em B/KB/MB para diagnóstico."""
+    """Formata tamanho em B/KB/MB para exibição."""
     n = int(n or 0)
     if n < 1024:
         return f"{n} B"
     if n < 1024 * 1024:
         return f"{n / 1024:.1f} KB"
     return f"{n / (1024 * 1024):.1f} MB"
-
-
-def _diagnostico_ambiente_exportacao() -> None:
-    """Mostra Python + versões dos pacotes críticos para exportação.
-
-    Útil para comparar máquinas (casa × trabalho) quando a exportação
-    apresentar comportamento inconsistente.
-    """
-    import sys
-    import platform
-    try:
-        import openpyxl  # noqa: WPS433
-        v_openpyxl = openpyxl.__version__
-    except Exception as _e:
-        v_openpyxl = f"(indisponível: {_e})"
-    try:
-        import pyarrow  # noqa: WPS433
-        v_pyarrow = pyarrow.__version__
-    except Exception as _e:
-        v_pyarrow = f"(indisponível: {_e})"
-    info = (
-        f"Python: `{sys.version.split()[0]}` ({platform.python_implementation()}) | "
-        f"pandas: `{pd.__version__}` | openpyxl: `{v_openpyxl}` | "
-        f"pyarrow: `{v_pyarrow}` | streamlit: `{st.__version__}`"
-    )
-    st.caption("🔧 **Diagnóstico do ambiente:** " + info)
 
 
 @st.fragment
@@ -355,13 +334,17 @@ def fragmento_exportar_demonstrativos():
     if not b:
         st.warning("⚠️ Sem dados de demonstrativos em memória. Execute **Processar Análise**.")
         return
-    st.info("💡 **Excel:** DCA, RREO e RGF | **CSV:** MSC Consolidada (arquivo grande, não cabe no Excel)")
+    st.info(
+        "📌 O primeiro Excel reúne **DCA, RREO e RGF**. O segundo contém "
+        "somente a **MSC consolidada dos meses 12 (dezembro) e 13 "
+        "(encerramento)**, utilizados nos cruzamentos desta análise."
+    )
 
     _key_export = f"{b.get('cod','')}_{b.get('ano','')}"
     _ck_xlsx = f"_xlsx_demo_bytes::{_key_export}"
     _ck_xlsx_err = f"_xlsx_demo_err::{_key_export}"
-    _ck_csv = f"_csv_demo_bytes::{_key_export}"
-    _ck_csv_err = f"_csv_demo_err::{_key_export}"
+    _ck_xlsx_msc = f"_xlsx_msc_bytes::{_key_export}"
+    _ck_xlsx_msc_err = f"_xlsx_msc_err::{_key_export}"
 
     col1, col2 = st.columns(2)
     with col1:
@@ -411,55 +394,71 @@ def fragmento_exportar_demonstrativos():
     with col2:
         msc = b.get("msc_consolidada")
         if msc is None or (isinstance(msc, pd.DataFrame) and msc.empty):
-            st.caption("MSC consolidada indisponível para exportação CSV.")
+            st.caption(
+                "MSC consolidada dos meses 12 e 13 indisponível para exportação."
+            )
         else:
-            if _ck_csv not in st.session_state and _ck_csv_err not in st.session_state:
-                with st.spinner("Gerando CSV (MSC Consolidada)..."):
+            if (
+                _ck_xlsx_msc not in st.session_state
+                and _ck_xlsx_msc_err not in st.session_state
+            ):
+                with st.spinner(
+                    "Gerando Excel da MSC consolidada (meses 12 e 13)..."
+                ):
                     try:
-                        out = BytesIO()
-                        msc.to_csv(out, index=False, encoding="utf-8-sig")
-                        st.session_state[_ck_csv] = out.getvalue()
+                        st.session_state[_ck_xlsx_msc] = (
+                            convert_msc_12_13_to_excel(msc)
+                        )
                     except Exception as _exc:
-                        st.session_state[_ck_csv_err] = (
+                        st.session_state[_ck_xlsx_msc_err] = (
                             f"{type(_exc).__name__}: {_exc}"
                         )
-            if st.session_state.get(_ck_csv_err):
+            if st.session_state.get(_ck_xlsx_msc_err):
                 st.error(
-                    "❌ Erro ao gerar CSV (MSC Consolidada): "
-                    f"{st.session_state[_ck_csv_err]}"
+                    "❌ Erro ao gerar o Excel da MSC (meses 12 e 13): "
+                    f"{st.session_state[_ck_xlsx_msc_err]}"
                 )
-                if st.button("🔁 Tentar gerar novamente", key=f"retry_csv_{_key_export}"):
-                    st.session_state.pop(_ck_csv_err, None)
-                    st.session_state.pop(_ck_csv, None)
+                if st.button(
+                    "🔁 Tentar gerar novamente",
+                    key=f"retry_xlsx_msc_{_key_export}",
+                ):
+                    st.session_state.pop(_ck_xlsx_msc_err, None)
+                    st.session_state.pop(_ck_xlsx_msc, None)
                     st.rerun(scope="fragment")
             else:
-                _csv_bytes = st.session_state.get(_ck_csv) or b""
-                _csv_n = len(_csv_bytes)
-                if _csv_n == 0:
+                _xlsx_msc_bytes = st.session_state.get(_ck_xlsx_msc) or b""
+                _xlsx_msc_n = len(_xlsx_msc_bytes)
+                if _xlsx_msc_n == 0:
                     st.warning(
-                        "⚠️ O CSV foi gerado, mas ficou **vazio** (0 bytes). "
+                        "⚠️ O Excel da MSC foi gerado, mas ficou **vazio** (0 bytes). "
                         "O navegador não dispara o download neste caso. Use o botão abaixo para regerar."
                     )
                 st.download_button(
-                    label="📥 Baixar CSV (MSC Consolidada)",
-                    data=_csv_bytes,
-                    file_name=f"msc_consolidada_{b['cod']}_{b['ano']}.csv",
-                    mime="text/csv",
+                    label="📥 Baixar Excel da MSC (meses 12 e 13)",
+                    data=_xlsx_msc_bytes,
+                    file_name=(
+                        f"msc_consolidada_meses_12_13_{b['cod']}_{b['ano']}.xlsx"
+                    ),
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "spreadsheetml.sheet"
+                    ),
                     width="stretch",
-                    key=f"dl_csv_msc_{_key_export}",
-                    disabled=(_csv_n == 0),
+                    key=f"dl_xlsx_msc_{_key_export}",
+                    disabled=(_xlsx_msc_n == 0),
                 )
-                st.caption(f"📦 Tamanho do CSV: **{_formata_tamanho_bytes(_csv_n)}**")
+                st.caption(
+                    "📦 Tamanho do Excel da MSC: "
+                    f"**{_formata_tamanho_bytes(_xlsx_msc_n)}**"
+                )
                 if st.button(
-                    "🔄 Regerar CSV",
-                    key=f"regen_csv_{_key_export}",
+                    "🔄 Regerar Excel da MSC",
+                    key=f"regen_xlsx_msc_{_key_export}",
                     help="Útil se o navegador não disparar o download.",
                 ):
-                    st.session_state.pop(_ck_csv, None)
-                    st.session_state.pop(_ck_csv_err, None)
+                    st.session_state.pop(_ck_xlsx_msc, None)
+                    st.session_state.pop(_ck_xlsx_msc_err, None)
                     st.rerun(scope="fragment")
-
-    _diagnostico_ambiente_exportacao()
 
 
 @st.fragment
@@ -672,14 +671,19 @@ def main():
         
         # 2️⃣ Ano de Exercício
         with col2:
-            # 3. Obter anos disponíveis
-            anos_disponiveis = [2025, 2024, 2023]
+            # A metodologia é versionada; não aplicamos silenciosamente regras
+            # de um exercício a outro.
+            anos_disponiveis = sorted(SUPPORTED_YEARS, reverse=True)
 
-            # 4. Selecionar Ano (2025 como padrão)
+            # Exercício fechado mais recente documentado na dissertação.
             ano = st.selectbox(
                 "Exercício (Ano) de análise:",
                 options=anos_disponiveis,
                 index=0,
+                help=(
+                    "Cada opção usa sua própria lista metodológica. "
+                    "Exercícios sem referencial cadastrado não são extrapolados."
+                ),
             )
 
         # 5. Filtrar base pelo ano selecionado
@@ -775,8 +779,11 @@ def main():
             ente = str(ente_row[coluna_codigo])
             cod = ente_row[coluna_nome]
 
-        st.markdown("---")
-        st.caption("💡 **Cache:**\n- Bases de ranking: 24 horas\n- Dados da API: 12 horas")
+        with st.expander("Detalhes técnicos da sessão", expanded=False):
+            st.caption(
+                "Metodologia versionada por exercício. Bases de ranking em cache "
+                "por até 24 horas; respostas da API por até 12 horas."
+            )
 
     except FileNotFoundError as e:
         st.error(f"❌ Erro: Arquivo não encontrado")
@@ -808,8 +815,38 @@ def main():
             st.code(str(e))
         st.stop()
 
-    # Exibir informações do ente selecionado
-    st.info(f"**Ente:** {cod} ({ente})\n**Ano:** {ano}\n**Tipo:** {'Estado' if tipo_ente == 'E' else 'Município'}")
+    contagens_metodo = get_crosscheck_counts(ano)
+    st.info(
+        f"**Contexto ativo:** {cod} ({ente}) · exercício {ano} · "
+        f"{contagens_metodo['total']} cruzamentos "
+        f"({contagens_metodo['D2']} D2 + {contagens_metodo['D3']} D3 + "
+        f"{contagens_metodo['D4']} D4)."
+    )
+
+    mapa_implementacao = mapear_implementacao(ano)
+    implementadas = mapa_implementacao[
+        mapa_implementacao["Situação"] == "Disponível no motor"
+    ]
+    with st.expander(
+        f"Cobertura de implementação — escopo da dissertação "
+        f"({len(implementadas)}/{len(mapa_implementacao)})",
+        expanded=False,
+    ):
+        st.caption(
+            "Disponível no motor significa que existe uma função concreta no código. "
+            "Isso não comprova a execução para um ente nem substitui a validação da regra."
+        )
+        colunas_cobertura = st.columns(3)
+        for coluna, dimensao in zip(colunas_cobertura, ("D2", "D3", "D4")):
+            recorte = mapa_implementacao[mapa_implementacao["Dimensão"] == dimensao]
+            quantidade = int((recorte["Situação"] == "Disponível no motor").sum())
+            coluna.metric(dimensao, f"{quantidade}/{len(recorte)}")
+            coluna.progress(quantidade / len(recorte) if len(recorte) else 0.0)
+        pendentes = mapa_implementacao[mapa_implementacao["Situação"] == "Pendente"]
+        if pendentes.empty:
+            st.success("Todas as regras do exercício possuem implementação concreta.")
+        else:
+            st.dataframe(pendentes, hide_index=True, width="stretch")
 
     #############################################################################
     # CONTROLE DE MUDANÇA DE ENTE/ANO - Limpa dados ao trocar
@@ -856,6 +893,7 @@ def main():
             del st.session_state['tipo_relatorio']
         if 'analise_processada' in st.session_state:
             st.session_state.analise_processada = False
+        st.session_state.analise_concluida = False
         _limpar_bundles_exportacao_session()
 
         # Atualizar ente/ano anterior
@@ -863,6 +901,53 @@ def main():
         st.session_state.ano_anterior = ano
         st.session_state.extrato_ente = None
         st.session_state.extrato_ano = None
+
+    _extrato_do_contexto = (
+        st.session_state.get("extrato_df") is not None
+        and not st.session_state.get("extrato_df", pd.DataFrame()).empty
+        and st.session_state.get("extrato_ente") == ente
+        and st.session_state.get("extrato_ano") == ano
+    )
+    _resultados_do_contexto = (
+        bool(st.session_state.get("analise_concluida"))
+        and st.session_state.get("analise_ente") == ente
+        and st.session_state.get("analise_ano") == ano
+    )
+    _processamento_do_contexto = (
+        bool(st.session_state.get("analise_processada"))
+        and not _resultados_do_contexto
+        and st.session_state.get("analise_ente") == ente
+        and st.session_state.get("analise_ano") == ano
+    )
+    stepper_slot = st.empty()
+    _stepper_labels = [
+        "Selecionar ente e exercício",
+        "Validar entregas",
+        "Processar cruzamentos",
+        "Revisar evidências",
+    ]
+
+    def _atualizar_stepper(*, processing=False, results_ready=False):
+        with stepper_slot.container():
+            analysis_stepper(
+                resolve_analysis_step(
+                    context_selected=True,
+                    extract_ready=(
+                        st.session_state.get("extrato_df") is not None
+                        and not st.session_state.get("extrato_df", pd.DataFrame()).empty
+                        and st.session_state.get("extrato_ente") == ente
+                        and st.session_state.get("extrato_ano") == ano
+                    ),
+                    processing=processing,
+                    results_ready=results_ready,
+                ),
+                steps=_stepper_labels,
+            )
+
+    _atualizar_stepper(
+        processing=_processamento_do_contexto,
+        results_ready=_resultados_do_contexto,
+    )
 
     #############################################################################
     # SEÇÃO: EXTRATO DE ENTREGAS (OBRIGATÓRIO)
@@ -878,28 +963,42 @@ def main():
         st.session_state.get('extrato_ente') == ente and
         st.session_state.get('extrato_ano') == ano
     )
+    mensagem_extrato = st.session_state.pop("_flash_extrato_carregado", None)
 
     if not extrato_valido:
         st.warning("⚠️ **É necessário carregar o Extrato de Entregas** para verificar os demonstrativos enviados e detectar o tipo de relatório.")
 
-    # Botão para carregar extratos
+    # A ação principal fica evidente; a limpeza exige confirmação.
     col1, col2 = st.columns([3, 1])
     with col1:
         carregar_extratos = st.button("🚀 Carregar Extrato de Entregas", type="primary", use_container_width=True)
     with col2:
-        if st.button("🗑️ Limpar Extrato", use_container_width=True):
-            if "extrato_df" in st.session_state:
-                del st.session_state["extrato_df"]
-            st.session_state.extrato_ente = None
-            st.session_state.extrato_ano = None
-            if 'tipo_relatorio' in st.session_state:
-                del st.session_state['tipo_relatorio']
-            st.rerun()
+        with st.popover("Opções avançadas", use_container_width=True):
+            confirmar_limpeza_extrato = st.checkbox(
+                "Confirmo que quero descartar o extrato desta sessão",
+                key="confirmar_limpeza_extrato",
+            )
+            if st.button(
+                "Limpar extrato",
+                disabled=not confirmar_limpeza_extrato,
+                use_container_width=True,
+            ):
+                st.session_state.pop("extrato_df", None)
+                st.session_state.extrato_ente = None
+                st.session_state.extrato_ano = None
+                st.session_state.pop("tipo_relatorio", None)
+                st.session_state.analise_processada = False
+                st.session_state.analise_concluida = False
+                st.rerun()
+
+    if mensagem_extrato:
+        st.success(mensagem_extrato)
 
     # Processar carregamento de extratos
     if carregar_extratos:
         progress_bar = st.progress(0)
         status_text = st.empty()
+        mensagem_sucesso_extrato = None
         try:
             status_text.info(f"🔄 Buscando extratos — Ente: {cod} ({ente}) • Ano: {ano}...")
             progress_bar.progress(20)
@@ -920,66 +1019,65 @@ def main():
                 # Registrar qual ente/ano foi carregado
                 st.session_state.extrato_ente = ente
                 st.session_state.extrato_ano = ano
-                status_text.success(f"✅ Extrato carregado com sucesso! Total de registros: {len(extrato)}")
+                st.session_state.analise_processada = False
+                st.session_state.analise_concluida = False
+                _limpar_bundles_exportacao_session()
+                mensagem_sucesso_extrato = (
+                    f"✅ Extrato carregado: {len(extrato)} registro(s) para "
+                    f"{cod} no exercício {ano}."
+                )
                 progress_bar.progress(100)
         except Exception as e:
             st.error(f"❌ Erro ao acessar a API: {e}")
-        except Exception as e:
-            st.error(f"❌ Erro ao processar os dados: {e}")
         finally:
             progress_bar.empty()
             status_text.empty()
+        if mensagem_sucesso_extrato:
+            st.session_state["_flash_extrato_carregado"] = mensagem_sucesso_extrato
+            st.rerun()
 
     # Exibir e filtrar extratos se disponíveis
     df_extrato = st.session_state.get("extrato_df")
     if df_extrato is not None and not df_extrato.empty:
-        st.markdown("---")
-        st.markdown("### 🔍 Filtrar Resultados do Extrato")
-
-        # Identificar colunas disponíveis para filtro
-        colunas_filtro_possiveis = ["instituicao", "entregavel", "exercicio", "bimestre"]
-        colunas_para_filtrar = [col for col in colunas_filtro_possiveis if col in df_extrato.columns]
-
-        if colunas_para_filtrar:
-            cols = st.columns(len(colunas_para_filtrar))
-            filtros = {}
-
-            for i, col in enumerate(colunas_para_filtrar):
-                opcoes = ["Todos"] + sorted(df_extrato[col].dropna().astype(str).unique().tolist())
-                filtros[col] = cols[i].selectbox(f"Filtrar {col.replace('_', ' ').title()}", opcoes, key=f"filter_{col}")
-
-            # Aplicar filtros
+        with st.expander(
+            f"Ver extrato bruto e filtros ({len(df_extrato)} registros)",
+            expanded=False,
+        ):
+            colunas_filtro_possiveis = ["instituicao", "entregavel", "exercicio", "bimestre"]
+            colunas_para_filtrar = [
+                col for col in colunas_filtro_possiveis if col in df_extrato.columns
+            ]
             extrato_filtrado = df_extrato.copy()
-            for col, val in filtros.items():
-                if val and val != "Todos":
-                    extrato_filtrado = extrato_filtrado[extrato_filtrado[col].astype(str) == val]
-        else:
-            extrato_filtrado = df_extrato.copy()
+            if colunas_para_filtrar:
+                cols = st.columns(len(colunas_para_filtrar))
+                for i, col in enumerate(colunas_para_filtrar):
+                    opcoes = ["Todos"] + sorted(
+                        df_extrato[col].dropna().astype(str).unique().tolist()
+                    )
+                    valor = cols[i].selectbox(
+                        f"Filtrar {col.replace('_', ' ').title()}",
+                        opcoes,
+                        key=f"filter_{col}",
+                    )
+                    if valor != "Todos":
+                        extrato_filtrado = extrato_filtrado[
+                            extrato_filtrado[col].astype(str) == valor
+                        ]
 
-        # Exibir tabela
-        st.markdown("### 📊 Dados do Extrato")
-        st.dataframe(extrato_filtrado, use_container_width=True, height=420)
-
-        # Estatísticas
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Total de Registros", len(extrato_filtrado))
-        with col2:
+            st.dataframe(extrato_filtrado, use_container_width=True, height=360)
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Registros", len(extrato_filtrado))
             if "instituicao" in extrato_filtrado.columns:
-                st.metric("Instituições Únicas", extrato_filtrado["instituicao"].nunique())
-        with col3:
+                col2.metric("Instituições", extrato_filtrado["instituicao"].nunique())
             if "entregavel" in extrato_filtrado.columns:
-                st.metric("Tipos de Entregáveis", extrato_filtrado["entregavel"].nunique())
-
-        # Botão de download
-        csv = extrato_filtrado.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            "⬇️ Baixar CSV",
-            data=csv,
-            file_name=f"extratos_{ente}_{ano}.csv",
-            mime="text/csv",
-            width="content",
-        )
+                col3.metric("Entregáveis", extrato_filtrado["entregavel"].nunique())
+            st.download_button(
+                "Baixar extrato (CSV)",
+                data=extrato_filtrado.to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"extratos_{ente}_{ano}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
 
     #####################################################################################
     #####################################################################################
@@ -1122,12 +1220,18 @@ def main():
         st.markdown("---")
         st.markdown("**📋 Resumo dos extratos disponíveis e das análises que podem ser executadas:**")
 
-        st.info("ℹ️ **Dimensão D1** removida/desativada neste aplicativo.")
+        st.info(
+            "ℹ️ **Entregas e homologação (D1)** funcionam como pré-requisito "
+            "de disponibilidade. O resultado analítico desta tela abrange somente "
+            "os cruzamentos D2, D3 e D4."
+        )
 
-        # D2 Antecipada - sempre executa se MSC disponível
         if disponibilidade['msc']['disponivel']:
             ultimo_mes = max(meses_disponiveis) if meses_disponiveis else 0
-            st.info(f"🔮 **D2 Antecipada (Matriz)** - Análise prévia disponível (mês {ultimo_mes})")
+            st.caption(
+                f"MSC disponível até o mês {ultimo_mes}; as regras que dependem "
+                "da matriz serão executadas quando houver os demais insumos."
+            )
 
         # D2: pode executar parcialmente com MSC/MSC Encerramento mesmo sem DCA
         base_d2_msc = disponibilidade['msc']['disponivel'] or disponibilidade['msc_encerramento']['disponivel']
@@ -1183,32 +1287,47 @@ def main():
         st.session_state.analise_ente = None
     if 'analise_ano' not in st.session_state:
         st.session_state.analise_ano = None
+    if 'analise_concluida' not in st.session_state:
+        st.session_state.analise_concluida = False
     st.markdown("---")
 
-    # Botões para processar análise e limpar cache
+    # A limpeza de cache fica protegida em opções avançadas.
     col1, col2 = st.columns([3, 1])
     with col1:
         processar = st.button("▶️ Processar Análise", type="primary", use_container_width=True)
     with col2:
-        if st.button("🗑️ Limpar Cache", use_container_width=True, help="Limpa o cache e recarrega os dados da API"):
-            st.cache_data.clear()
-            st.session_state.analise_processada = False
-            _limpar_bundles_exportacao_session()
-            gc.collect()
-            st.success("✅ Cache limpo!")
-            st.info("🔄 Recarregue a página para aplicar as mudanças.")
-            st.stop()
+        with st.popover("Opções avançadas", use_container_width=True):
+            confirmar_limpeza_cache = st.checkbox(
+                "Confirmo a limpeza do cache desta aplicação",
+                key="confirmar_limpeza_cache",
+            )
+            if st.button(
+                "Limpar cache",
+                disabled=not confirmar_limpeza_cache,
+                use_container_width=True,
+                help="Descarta dados em memória e exige nova consulta à API.",
+            ):
+                st.cache_data.clear()
+                st.session_state.analise_processada = False
+                st.session_state.analise_concluida = False
+                _limpar_bundles_exportacao_session()
+                gc.collect()
+                st.success("Cache limpo. A próxima execução consultará os dados novamente.")
+                st.stop()
 
     # Se clicou em processar, atualiza o estado
     if processar:
         _limpar_bundles_exportacao_session()
         st.session_state.analise_processada = True
+        st.session_state.analise_concluida = False
         st.session_state.analise_ente = ente
         st.session_state.analise_ano = ano
+        _atualizar_stepper(processing=True)
 
     # Se mudou o ente ou ano, reseta o estado
     if (st.session_state.analise_ente != ente or st.session_state.analise_ano != ano):
         st.session_state.analise_processada = False
+        st.session_state.analise_concluida = False
         _limpar_bundles_exportacao_session()
 
     # Verificar se a análise foi processada
@@ -1221,7 +1340,7 @@ def main():
         if (ente_mudou or ano_mudou) and _ja_havia_contexto:
             st.warning(
                 "🔄 **Ente ou ano alterado:** os demonstrativos em memória e os bytes da exportação "
-                "(Excel/CSV) do **contexto anterior** foram descartados por segurança — não misturamos dados "
+                "(arquivos Excel) do **contexto anterior** foram descartados por segurança — não misturamos dados "
                 "de dois entes. Clique em **▶️ Processar Análise** para carregar o novo ente/ano e voltar a "
                 "ver o quadro de demonstrativos e **Exportar Demonstrativos para Excel**."
             )
@@ -1686,7 +1805,9 @@ def main():
         "df_dca_hi": df_dca_hi,
         "rreo": rreo,
         "rgf": rgf,
-        "msc_consolidada": msc_consolidada,
+        # Snapshot: as transformações posteriores da análise não podem
+        # alterar o primeiro download nem uma eventual regeneração.
+        "msc_consolidada": msc_consolidada.copy(),
     }
     fragmento_exportar_demonstrativos()
 
@@ -1775,7 +1896,7 @@ def main():
         emp_msc_encerr = pd.DataFrame()
 
     # Base específica de RP da MSC de encerramento (beginning_balance)
-    # para cruzamentos com DCA Anexo I-G (D2_00101 a D2_00105).
+    # para cruzamentos com DCA Anexo I-G (D2_00100 a D2_00104).
     if not msc_encerr.empty and {'tipo_valor', 'conta_contabil'}.issubset(msc_encerr.columns):
         rp_encerramento = msc_encerr.query('tipo_valor == "beginning_balance"').copy()
         rp_encerramento = rp_encerramento[
@@ -2043,12 +2164,11 @@ def main():
         d2_00095 = criar_d2_na('D2_00095', 'Despesas previdenciárias RGPS — saldo final contas 3.1.1.2.1.01.01, 3.1.2.2.1.01.00 e 3.1.2.2.3.01.00 (MSC Dezembro)')
         d2_00089 = criar_d2_na('D2_00089', 'Verificar VPD de Variações Monetárias e Cambiais Externas quando houver obrigações de empréstimos e financiamentos externos')
         d2_00099 = criar_d2_na('D2_00099', 'Avalia a informação de deduções com transferências constitucionais por municípios')
-        d2_00100 = criar_d2_na('D2_00100', 'Redução ao valor recuperável (investimentos, imobilizado e intangível) — VPD x Ativo (DCA HI x DCA AB)')
-        d2_00101 = criar_d2_na('D2_00101', 'RP função 10 Saúde (MSC Encerramento x DCA G)')
-        d2_00102 = criar_d2_na('D2_00102', 'RP função 12 Educação (MSC Encerramento x DCA G)')
-        d2_00103 = criar_d2_na('D2_00103', 'RP função 09 Previdência Social (MSC Encerramento x DCA G)')
-        d2_00104 = criar_d2_na('D2_00104', 'RP demais funções exceto 09/10/12 (MSC Encerramento x DCA G)')
-        d2_00105 = criar_d2_na('D2_00105', 'RP intraorçamentário (MSC Encerramento x DCA G)')
+        d2_00100 = criar_d2_na('D2_00100', 'RP função 10 Saúde (MSC Encerramento x DCA G)')
+        d2_00101 = criar_d2_na('D2_00101', 'RP função 12 Educação (MSC Encerramento x DCA G)')
+        d2_00102 = criar_d2_na('D2_00102', 'RP função 09 Previdência Social (MSC Encerramento x DCA G)')
+        d2_00103 = criar_d2_na('D2_00103', 'RP demais funções exceto 09/10/12 (MSC Encerramento x DCA G)')
+        d2_00104 = criar_d2_na('D2_00104', 'RP intraorçamentário (MSC Encerramento x DCA G)')
 
         # Criar tabelas vazias para os detalhamentos
         d2_00002_t = pd.DataFrame()
@@ -2133,7 +2253,6 @@ def main():
         d2_00102_t = pd.DataFrame()
         d2_00103_t = pd.DataFrame()
         d2_00104_t = pd.DataFrame()
-        d2_00105_t = pd.DataFrame()
 
         # Respostas N/A
         resposta_d2_00002 = 'N/A'; resposta_d2_00003 = 'N/A'; resposta_d2_00004 = 'N/A'
@@ -2172,7 +2291,6 @@ def main():
         resposta_d2_00102 = 'N/A'
         resposta_d2_00103 = 'N/A'
         resposta_d2_00104 = 'N/A'
-        resposta_d2_00105 = 'N/A'
 
         # Variáveis auxiliares para condições específicas
         condicao_negativa_cp = False
@@ -2301,18 +2419,6 @@ def main():
                 d2_00089_t = pd.DataFrame()
                 resposta_d2_00089 = 'N/A'
 
-            if ano >= 2025:
-                d2_00100, d2_00100_t = d2_dca_analysis.d2_00100(df_dca_hi, df_dca_ab)
-                resposta_d2_00100 = d2_00100['Resposta'].iloc[0]
-            else:
-                d2_00100 = criar_d2_na(
-                    'D2_00100',
-                    'Redução ao valor recuperável (investimentos, imobilizado e intangível) — VPD x Ativo (DCA HI x DCA AB)',
-                    'Aplicável somente a partir de 2025 (metodologia STN — E/DF/M)',
-                )
-                d2_00100_t = pd.DataFrame()
-                resposta_d2_00100 = 'N/A'
-
             d2_00061, d2_00061_t = d2_dca_analysis.d2_00061(df_dca_hi)
             resposta_d2_00061 = d2_00061['Resposta'].iloc[0]
 
@@ -2371,7 +2477,6 @@ def main():
                 ('D2_00051', 'Ajuste para perdas em Estoques (DCA)'),
                 ('D2_00052', 'Equivalência Patrimonial (DCA)'),
                 ('D2_00089', 'Verificar VPD de Variações Monetárias e Cambiais Externas quando houver obrigações de empréstimos e financiamentos externos'),
-                ('D2_00100', 'Redução ao valor recuperável (investimentos, imobilizado e intangível) — VPD x Ativo (DCA HI x DCA AB)'),
                 ('D2_00061', 'VPA FUNDEB informada (DCA)'),
                 ('D2_00066', 'Amortização de intangíveis (DCA)'),
                 ('D2_00085', 'CAPAG — Passivo Financeiro + Permanente (DCA AB) ≥ Passivo Circulante + Não Circulante (DCA AB)'),
@@ -2447,6 +2552,8 @@ def main():
             resposta_d2_00074 = d2_00074['Resposta'].iloc[0]
 
             if ano >= 2025:
+                d2_00100, d2_00100_t = d2_dca_analysis.d2_00100(rp_encerramento, df_dca_g)
+                resposta_d2_00100 = d2_00100['Resposta'].iloc[0]
                 d2_00101, d2_00101_t = d2_dca_analysis.d2_00101(rp_encerramento, df_dca_g)
                 resposta_d2_00101 = d2_00101['Resposta'].iloc[0]
                 d2_00102, d2_00102_t = d2_dca_analysis.d2_00102(rp_encerramento, df_dca_g)
@@ -2455,44 +2562,42 @@ def main():
                 resposta_d2_00103 = d2_00103['Resposta'].iloc[0]
                 d2_00104, d2_00104_t = d2_dca_analysis.d2_00104(rp_encerramento, df_dca_g)
                 resposta_d2_00104 = d2_00104['Resposta'].iloc[0]
-                d2_00105, d2_00105_t = d2_dca_analysis.d2_00105(rp_encerramento, df_dca_g)
-                resposta_d2_00105 = d2_00105['Resposta'].iloc[0]
             else:
+                d2_00100 = criar_d2_na(
+                    'D2_00100',
+                    'RP função 10 Saúde (MSC Encerramento x DCA G)',
+                    'Aplicável somente a partir de 2025 (metodologia STN — E/DF/M)',
+                )
                 d2_00101 = criar_d2_na(
                     'D2_00101',
-                    'RP função 10 Saúde (MSC Encerramento x DCA G)',
+                    'RP função 12 Educação (MSC Encerramento x DCA G)',
                     'Aplicável somente a partir de 2025 (metodologia STN — E/DF/M)',
                 )
                 d2_00102 = criar_d2_na(
                     'D2_00102',
-                    'RP função 12 Educação (MSC Encerramento x DCA G)',
+                    'RP função 09 Previdência Social (MSC Encerramento x DCA G)',
                     'Aplicável somente a partir de 2025 (metodologia STN — E/DF/M)',
                 )
                 d2_00103 = criar_d2_na(
                     'D2_00103',
-                    'RP função 09 Previdência Social (MSC Encerramento x DCA G)',
+                    'RP demais funções exceto 09/10/12 (MSC Encerramento x DCA G)',
                     'Aplicável somente a partir de 2025 (metodologia STN — E/DF/M)',
                 )
                 d2_00104 = criar_d2_na(
                     'D2_00104',
-                    'RP demais funções exceto 09/10/12 (MSC Encerramento x DCA G)',
-                    'Aplicável somente a partir de 2025 (metodologia STN — E/DF/M)',
-                )
-                d2_00105 = criar_d2_na(
-                    'D2_00105',
                     'RP intraorçamentário (MSC Encerramento x DCA G)',
                     'Aplicável somente a partir de 2025 (metodologia STN — E/DF/M)',
                 )
+                d2_00100_t = pd.DataFrame()
                 d2_00101_t = pd.DataFrame()
                 d2_00102_t = pd.DataFrame()
                 d2_00103_t = pd.DataFrame()
                 d2_00104_t = pd.DataFrame()
-                d2_00105_t = pd.DataFrame()
+                resposta_d2_00100 = 'N/A'
                 resposta_d2_00101 = 'N/A'
                 resposta_d2_00102 = 'N/A'
                 resposta_d2_00103 = 'N/A'
                 resposta_d2_00104 = 'N/A'
-                resposta_d2_00105 = 'N/A'
         else:
             obs_dca_msce = 'DCA e/ou MSC Encerramento não disponíveis — verificação exige ambos'
             for codigo, descricao in [
@@ -2510,11 +2615,11 @@ def main():
                 ('D2_00072', 'Despesas demais funções (MSC Encerramento x DCA E)'),
                 ('D2_00073', 'Despesas intraorçamentárias (MSC Encerramento x DCA E)'),
                 ('D2_00074', 'RPPP/RPNPP Pagos (MSC Encerramento x DCA F)'),
-                ('D2_00101', 'RP função 10 Saúde (MSC Encerramento x DCA G)'),
-                ('D2_00102', 'RP função 12 Educação (MSC Encerramento x DCA G)'),
-                ('D2_00103', 'RP função 09 Previdência Social (MSC Encerramento x DCA G)'),
-                ('D2_00104', 'RP demais funções exceto 09/10/12 (MSC Encerramento x DCA G)'),
-                ('D2_00105', 'RP intraorçamentário (MSC Encerramento x DCA G)'),
+                ('D2_00100', 'RP função 10 Saúde (MSC Encerramento x DCA G)'),
+                ('D2_00101', 'RP função 12 Educação (MSC Encerramento x DCA G)'),
+                ('D2_00102', 'RP função 09 Previdência Social (MSC Encerramento x DCA G)'),
+                ('D2_00103', 'RP demais funções exceto 09/10/12 (MSC Encerramento x DCA G)'),
+                ('D2_00104', 'RP intraorçamentário (MSC Encerramento x DCA G)'),
             ]:
                 locals()[codigo.lower()] = criar_d2_na(codigo, descricao, obs_dca_msce)
                 locals()[f"{codigo.lower()}_t"] = pd.DataFrame()
@@ -2895,6 +3000,7 @@ def main():
         d3_00021 = criar_d3_na('D3_00021', 'CAPAG: Passivo Financeiro MSC Dez >= Restos a Pagar MSC Dez')
         d3_00040 = criar_d3_na('D3_00040', 'Receitas de Operações de Crédito RREO Anexo 1 x Anexo 9')
         d3_00044 = criar_d3_na('D3_00044', 'Transferências da União — Agentes Comunitários de Saúde (RREO Anexo 3 x RGF Anexo 1 E)')
+        d3_00047 = criar_d3_na('D3_00047', 'Reserva Orçamentária do RPPS RREO Anexo 4 x Anexo 6')
         d3_00045 = criar_d3_na('D3_00045', 'Valores negativos em Restos a Pagar — RGF Anexo 5 (Executivo)')
         d3_00046 = criar_d3_na('D3_00046', 'Contribuição do Servidor para Previdência RREO Anexo 3 x Anexo 4')
         d3_00048 = criar_d3_na('D3_00048', 'Despesas com Compensação Financeira entre regimes (MSC dez x RREO Anexo 4)')
@@ -2940,6 +3046,7 @@ def main():
         d3_00021_t = pd.DataFrame()
         d3_00040_t = pd.DataFrame()
         d3_00044_t = pd.DataFrame()
+        d3_00047_t = pd.DataFrame()
         d3_00045_t = pd.DataFrame()
         d3_00046_t = pd.DataFrame()
         d3_00048_t = pd.DataFrame()
@@ -2974,6 +3081,7 @@ def main():
         resposta_d3_00039 = 'N/A'
         resposta_d3_00040 = 'N/A'
         resposta_d3_00044 = 'N/A'
+        resposta_d3_00047 = 'N/A'
         resposta_d3_00045 = 'N/A'
         resposta_d3_00046 = 'N/A'
         resposta_d3_00048 = 'N/A'
@@ -3033,6 +3141,7 @@ def main():
         d3_00039, d3_00039_t = d3_analysis.d3_00039(df_rreo_1, df_rreo_9)
         d3_00040, d3_00040_t = d3_analysis.d3_00040(df_rreo_1, df_rreo_9)
         d3_00044, d3_00044_t = d3_analysis.d3_00044(df_rreo_3, df_rgf_1e)
+        d3_00047, d3_00047_t = d3_analysis.d3_00047(df_rreo_4, df_rreo_6)
         d3_00045, d3_00045_t = d3_analysis.d3_00045(df_rgf_5e)
         d3_00046, d3_00046_t = d3_analysis.d3_00046(df_rreo_3, df_rreo_4)
         d3_00048, d3_00048_t = d3_analysis.d3_00048(msc_dez, df_rreo_4)
@@ -3067,6 +3176,7 @@ def main():
             'D3_00039': (2024, None),
             'D3_00040': (2024, None),
             'D3_00044': (2024, None),
+            'D3_00047': (2025, None),
             'D3_00045': (2024, None),
             'D3_00046': (2025, None),
             'D3_00048': (2025, None),
@@ -3101,6 +3211,7 @@ def main():
         d3_00039, d3_00039_t = _aplicar_vigencia('D3_00039', 'Amortização da Dívida RREO Anexo 1 x Anexo 9', d3_00039, d3_00039_t, ano_vigencia_ranking, d3_vigencia, vigencia_csv)
         d3_00040, d3_00040_t = _aplicar_vigencia('D3_00040', 'Receitas de Operações de Crédito RREO Anexo 1 x Anexo 9', d3_00040, d3_00040_t, ano_vigencia_ranking, d3_vigencia, vigencia_csv)
         d3_00044, d3_00044_t = _aplicar_vigencia('D3_00044', 'Transferências da União — Agentes Comunitários de Saúde (RREO Anexo 3 x RGF Anexo 1 E)', d3_00044, d3_00044_t, ano_vigencia_ranking, d3_vigencia, vigencia_csv)
+        d3_00047, d3_00047_t = _aplicar_vigencia('D3_00047', 'Reserva Orçamentária do RPPS RREO Anexo 4 x Anexo 6', d3_00047, d3_00047_t, ano_vigencia_ranking, d3_vigencia, vigencia_csv)
         d3_00045, d3_00045_t = _aplicar_vigencia('D3_00045', 'Valores negativos em Restos a Pagar — RGF Anexo 5 (Executivo)', d3_00045, d3_00045_t, ano_vigencia_ranking, d3_vigencia, vigencia_csv)
         d3_00046, d3_00046_t = _aplicar_vigencia('D3_00046', 'Contribuição do Servidor para Previdência RREO Anexo 3 x Anexo 4', d3_00046, d3_00046_t, ano_vigencia_ranking, d3_vigencia, vigencia_csv)
         d3_00048, d3_00048_t = _aplicar_vigencia('D3_00048', 'Despesas com Compensação Financeira entre regimes (MSC dez x RREO Anexo 4)', d3_00048, d3_00048_t, ano_vigencia_ranking, d3_vigencia, vigencia_csv)
@@ -3145,6 +3256,7 @@ def main():
         resposta_d3_00039 = d3_00039['Resposta'].iloc[0]
         resposta_d3_00040 = d3_00040['Resposta'].iloc[0]
         resposta_d3_00044 = d3_00044['Resposta'].iloc[0]
+        resposta_d3_00047 = d3_00047['Resposta'].iloc[0]
         resposta_d3_00045 = d3_00045['Resposta'].iloc[0]
         resposta_d3_00046 = d3_00046['Resposta'].iloc[0]
         resposta_d3_00048 = d3_00048['Resposta'].iloc[0]
@@ -3249,8 +3361,8 @@ def main():
         d4_00042 = criar_d4_na('D4_00042', 'CAPAG: OFE RGF 5 Executivo >= valores restituíveis MSC Dez')
         d4_00043 = criar_d4_na('D4_00043', 'CAPAG: Recursos Não Vinculados (Disp. Caixa Bruta + RPs) — MSC Dez x RGF 5 Executivo')
         d4_00045 = criar_d4_na('D4_00045', 'CAPAG: Recursos Extraorçamentários RGF 5 Executivo >= valores restituíveis MSC Dez (1113*, FR 860–862/869)')
-        d4_00046 = criar_d4_na('D4_00046', 'Contribuições dos segurados RREO Anexo 4 x DCA Anexo I-C')
-        d4_00047 = criar_d4_na('D4_00047', 'Contribuições patronais RREO Anexo 4 x DCA Anexo I-C')
+        d4_00046 = criar_d4_na('D4_00046', 'Receitas selecionadas RREO Anexo 3 x DCA Anexo I-C')
+        d4_00047 = criar_d4_na('D4_00047', 'Dedução do FUNDEB RREO Anexo 3 x DCA Anexo I-C')
         d4_00048 = criar_d4_na('D4_00048', 'Restos a Pagar empenhados e não liquidados RGF 5 x DCA Anexo I-D')
         d4_00049 = criar_d4_na('D4_00049', 'Restos a Pagar liquidados e não pagos RGF 5 x DCA Anexo I-D')
         d4_00050 = criar_d4_na('D4_00050', 'Receitas de contribuições/patrimonial/agropecuária/industrial/serviços RREO 3 x DCA Anexo I-C')
@@ -3375,8 +3487,8 @@ def main():
             d4_00011, d4_00011_t = d4_analysis.d4_00011(df_rreo_3, df_dca_c, tipo_ente)
             d4_00012, d4_00012_t = d4_analysis.d4_00012(df_rreo_3, df_dca_c, tipo_ente)
             d4_00017, d4_00017_t = d4_analysis.d4_00017(df_rreo_3, df_dca_c)
-            d4_00046, d4_00046_t = d4_analysis.d4_00046(df_rreo_4, df_dca_c)
-            d4_00047, d4_00047_t = d4_analysis.d4_00047(df_rreo_4, df_dca_c)
+            d4_00046, d4_00046_t = d4_analysis.d4_00046(df_rreo_3, df_dca_c)
+            d4_00047, d4_00047_t = d4_analysis.d4_00047(df_rreo_3, df_dca_c)
             d4_00048, d4_00048_t = d4_analysis.d4_00048(df_dca_d, rgf_total)
             d4_00049, d4_00049_t = d4_analysis.d4_00049(df_dca_d, rgf_total)
             d4_00050, d4_00050_t = d4_analysis.d4_00050(df_rreo_3, df_dca_c)
@@ -3410,9 +3522,9 @@ def main():
             d4_00012_t = pd.DataFrame()
             d4_00017 = criar_d4_na_sem_dca('D4_00017', 'Contribuições e compensações previdenciárias RREO x DCA')
             d4_00017_t = pd.DataFrame()
-            d4_00046 = criar_d4_na_sem_dca('D4_00046', 'Contribuições dos segurados RREO Anexo 4 x DCA Anexo I-C')
+            d4_00046 = criar_d4_na_sem_dca('D4_00046', 'Receitas selecionadas RREO Anexo 3 x DCA Anexo I-C')
             d4_00046_t = pd.DataFrame()
-            d4_00047 = criar_d4_na_sem_dca('D4_00047', 'Contribuições patronais RREO Anexo 4 x DCA Anexo I-C')
+            d4_00047 = criar_d4_na_sem_dca('D4_00047', 'Dedução do FUNDEB RREO Anexo 3 x DCA Anexo I-C')
             d4_00047_t = pd.DataFrame()
             d4_00048 = criar_d4_na_sem_dca('D4_00048', 'Restos a Pagar empenhados e não liquidados RGF 5 x DCA Anexo I-D')
             d4_00048_t = pd.DataFrame()
@@ -3508,8 +3620,8 @@ def main():
         d4_00042, d4_00042_t = _aplicar_vigencia('D4_00042', 'CAPAG: OFE RGF 5 Executivo >= valores restituíveis MSC Dez', d4_00042, d4_00042_t, ano_vigencia_ranking, d4_vigencia, vigencia_csv)
         d4_00043, d4_00043_t = _aplicar_vigencia('D4_00043', 'CAPAG: Recursos Não Vinculados (Disp. Caixa Bruta + RPs) — MSC Dez x RGF 5 Executivo', d4_00043, d4_00043_t, ano_vigencia_ranking, d4_vigencia, vigencia_csv)
         d4_00045, d4_00045_t = _aplicar_vigencia('D4_00045', 'CAPAG: Recursos Extraorçamentários RGF 5 Executivo >= valores restituíveis MSC Dez (1113*, FR 860–862/869)', d4_00045, d4_00045_t, ano_vigencia_ranking, d4_vigencia, vigencia_csv)
-        d4_00046, d4_00046_t = _aplicar_vigencia('D4_00046', 'Contribuições dos segurados RREO Anexo 4 x DCA Anexo I-C', d4_00046, d4_00046_t, ano_vigencia_ranking, d4_vigencia, vigencia_csv)
-        d4_00047, d4_00047_t = _aplicar_vigencia('D4_00047', 'Contribuições patronais RREO Anexo 4 x DCA Anexo I-C', d4_00047, d4_00047_t, ano_vigencia_ranking, d4_vigencia, vigencia_csv)
+        d4_00046, d4_00046_t = _aplicar_vigencia('D4_00046', 'Receitas selecionadas RREO Anexo 3 x DCA Anexo I-C', d4_00046, d4_00046_t, ano_vigencia_ranking, d4_vigencia, vigencia_csv)
+        d4_00047, d4_00047_t = _aplicar_vigencia('D4_00047', 'Dedução do FUNDEB RREO Anexo 3 x DCA Anexo I-C', d4_00047, d4_00047_t, ano_vigencia_ranking, d4_vigencia, vigencia_csv)
         d4_00048, d4_00048_t = _aplicar_vigencia('D4_00048', 'Restos a Pagar empenhados e não liquidados RGF 5 x DCA Anexo I-D', d4_00048, d4_00048_t, ano_vigencia_ranking, d4_vigencia, vigencia_csv)
         d4_00049, d4_00049_t = _aplicar_vigencia('D4_00049', 'Restos a Pagar liquidados e não pagos RGF 5 x DCA Anexo I-D', d4_00049, d4_00049_t, ano_vigencia_ranking, d4_vigencia, vigencia_csv)
         d4_00050, d4_00050_t = _aplicar_vigencia('D4_00050', 'Receitas de contribuições/patrimonial/agropecuária/industrial/serviços RREO 3 x DCA Anexo I-C', d4_00050, d4_00050_t, ano_vigencia_ranking, d4_vigencia, vigencia_csv)
@@ -3669,7 +3781,6 @@ def main():
                 d2_lista.append(d2_00102)
                 d2_lista.append(d2_00103)
                 d2_lista.append(d2_00104)
-                d2_lista.append(d2_00105)
             d2 = pd.concat(d2_lista, ignore_index=True)
         else:
             d2_lista = [d2_00002, d2_00003, d2_00004, d2_00005, d2_00006, d2_00007, d2_00008, d2_00010,
@@ -3725,7 +3836,6 @@ def main():
                 d2_lista.append(d2_00102)
                 d2_lista.append(d2_00103)
                 d2_lista.append(d2_00104)
-                d2_lista.append(d2_00105)
             d2 = pd.concat(d2_lista, ignore_index=True)
     else:
         # DCA não disponível - criar DataFrame N/A para D2
@@ -3743,7 +3853,7 @@ def main():
     # Consolidando a D3
     if executar_d3:
         # RREO completo disponível - consolidar verificações D3 normalmente
-        d3 = pd.concat([d3_00001, d3_00002, d3_00005, d3_00006, d3_00008, d3_00009, d3_00010, d3_00011, d3_00012, d3_00013, d3_00014, d3_00015, d3_00016, d3_00017, d3_00021, d3_00022, d3_00023, d3_00024, d3_00025, d3_00026, d3_00027, d3_00028, d3_00029, d3_00030, d3_00032, d3_00033, d3_00034, d3_00035, d3_00037, d3_00038, d3_00039, d3_00040, d3_00044, d3_00045, d3_00046, d3_00048, d3_00049, d3_00050, d3_00051, d3_00052, d3_00054, d3_00055, d3_00056], ignore_index=True)
+        d3 = pd.concat([d3_00001, d3_00002, d3_00005, d3_00006, d3_00008, d3_00009, d3_00010, d3_00011, d3_00012, d3_00013, d3_00014, d3_00015, d3_00016, d3_00017, d3_00021, d3_00022, d3_00023, d3_00024, d3_00025, d3_00026, d3_00027, d3_00028, d3_00029, d3_00030, d3_00032, d3_00033, d3_00034, d3_00035, d3_00037, d3_00038, d3_00039, d3_00040, d3_00044, d3_00047, d3_00045, d3_00046, d3_00048, d3_00049, d3_00050, d3_00051, d3_00052, d3_00054, d3_00055, d3_00056], ignore_index=True)
     else:
         # RREO não completo - criar DataFrame N/A para D3
         d3 = pd.DataFrame([{
@@ -3791,589 +3901,133 @@ def main():
     final = pd.concat([d1, d4], ignore_index=True)
     final["_ord_dim"] = final["Dimensão"].map(_chave_ordenacao_dimensao)
     final = final.sort_values("_ord_dim").drop(columns=["_ord_dim"]).reset_index(drop=True)
-    final = filtrar_verificacoes_cruzamentos(final)
+    final = filtrar_verificacoes_cruzamentos(final, ano)
 
 
 
     st.divider()
 
 
-    # Acertos/erros por dimensão — calculados após dimensoes_configuradas (ver abaixo).
-    # Variáveis inicializadas aqui para que referências anteriores a dimensoes_configuradas
-    # não gerem NameError; os valores definitivos são atribuídos logo após _mask_configuradas.
-    d1_acertos = d2_acertos = d3_acertos = d4_acertos = 0
-    d1_erros   = d2_erros   = d3_erros   = d4_erros   = 0
-    total_acertos_geral = total_erros_geral = 0
-
-    _mask_capag_resumo = final.apply(
-        lambda r: eh_verificacao_capag(str(r.get("Dimensão", "")), r.get("Descrição da Dimensão")),
-        axis=1,
+    # Resumo executivo: cobertura e conformidade são conceitos distintos.
+    # Falta de dados, não aplicabilidade e falha técnica não viram "erro".
+    _resumo_diagnostico = summarize_results(
+        final.to_dict("records"),
+        get_crosschecks(ano),
     )
-    _final_capag_resumo = final.loc[_mask_capag_resumo]
-    _resp_capag = _final_capag_resumo["Resposta"].astype(str)
-    capag_acertos = int(_resp_capag.str.startswith("OK").sum())
-    capag_erros = int((_resp_capag == "ERRO").sum())
-    capag_classificadas = capag_acertos + capag_erros
-    capag_total_linhas = int(len(_final_capag_resumo))
+    _geral = _resumo_diagnostico["overall"]
+    _contagens_status = _geral["status_counts"]
+    _conformes = _contagens_status[DiagnosticStatus.CONFORME.value]
+    _divergencias = _contagens_status[DiagnosticStatus.DIVERGENCIA.value]
+    _insuficientes = _contagens_status[DiagnosticStatus.DADOS_INSUFICIENTES.value]
+    _nao_aplicaveis = _contagens_status[DiagnosticStatus.NAO_APLICAVEL.value]
+    _falhas_tecnicas = _contagens_status[DiagnosticStatus.FALHA_TECNICA.value]
 
-    def _eh_d1_entrega_ou_tempestividade(codigo):
-        if not (isinstance(codigo, str) and codigo.startswith('D1_')):
-            return False
-        sufixo = codigo.split('_')[-1]
-        if not sufixo.isdigit():
-            return False
-        numero = int(sufixo)
-        return 1 <= numero <= 16
-
-    verificacoes_base_total = set()
-    # Ano efetivamente usado como referência da base oficial.
-    # Quando há base do próprio ano, é igual a `ano`; caso contrário, vira o
-    # ano fechado mais recente disponível para o ente (fallback).
-    ano_base_oficial = None
-    try:
-        codigo_ente_base = str(ente_row[coluna_codigo])
-        if tipo_ente == "E":
-            base_filtro = df_base[
-                (df_base['VA_EXERCICIO'] == ano)
-                & (df_base[coluna_codigo].astype(str) == codigo_ente_base)
-            ]
-            if not base_filtro.empty:
-                ano_base_oficial = ano
-            else:
-                base_filtro = df_base[df_base[coluna_codigo].astype(str) == codigo_ente_base]
-                if not base_filtro.empty:
-                    ano_ref = int(base_filtro['VA_EXERCICIO'].max())
-                    base_filtro = base_filtro[base_filtro['VA_EXERCICIO'] == ano_ref]
-                    ano_base_oficial = ano_ref
-            if 'NO_VERIFICACAO' in base_filtro.columns:
-                verificacoes_base_total = set(base_filtro['NO_VERIFICACAO'].dropna().astype(str).unique())
-        else:
-            base_filtro = df_base[
-                (df_base['VA_EXERCICIO'] == ano)
-                & (df_base[coluna_codigo].astype(str) == codigo_ente_base)
-            ]
-            if not base_filtro.empty:
-                ano_base_oficial = ano
-            else:
-                base_filtro = df_base[df_base[coluna_codigo].astype(str) == codigo_ente_base]
-                if not base_filtro.empty:
-                    ano_ref = int(base_filtro['VA_EXERCICIO'].max())
-                    base_filtro = base_filtro[base_filtro['VA_EXERCICIO'] == ano_ref]
-                    ano_base_oficial = ano_ref
-            if not base_filtro.empty:
-                linha_base = base_filtro.iloc[0]
-                colunas_verificacao_base = [
-                    col for col in df_base.columns
-                    if col.startswith(('D1_', 'D2_', 'D3_', 'D4_')) and len(col) == 8
-                ]
-                verificacoes_base_total = {
-                    col for col in colunas_verificacao_base
-                    if pd.notna(linha_base.get(col))
-                }
-    except Exception:
-        verificacoes_base_total = set()
-        ano_base_oficial = None
-    verificacoes_base_total = verificacoes_base_total.intersection(VERIFICACOES_CRUZAMENTOS)
-
-    base_e_fallback = (ano_base_oficial is not None) and (ano_base_oficial != ano)
-    _label_ano_base = f"{ano_base_oficial}" if ano_base_oficial else str(ano)
-    # Derivada da configuração central no topo do arquivo.
-    modo_consulta_publica = FLAG_MODO_CONSULTA_PUBLICA and (ano >= ANO_INICIO_CONSULTA_PUBLICA)
-
-    verificacoes_passiveis = {
-        v for v in verificacoes_base_total if not _eh_d1_entrega_ou_tempestividade(v)
-    }
-
-    _respostas_definitivas = final['Resposta'].astype(str)
-    dimensoes_configuradas = {
-        d
-        for d, r in zip(final['Dimensão'].dropna().astype(str), _respostas_definitivas)
-        if d.startswith(('D1_', 'D2_', 'D3_', 'D4_'))
-        and len(d) == 8
-        and d.split('_')[-1].isdigit()
-        and (r.startswith('OK') or r == 'ERRO')
-    }
-    dimensoes_configuradas = {
-        d for d in dimensoes_configuradas if not _eh_d1_entrega_ou_tempestividade(d)
-    }
-    # Verificações novas do app (OK/ERRO) que ainda não constam na base oficial da STN.
-    _novas_app_ok_erro = {
-        d for d in dimensoes_configuradas
-        if d not in verificacoes_base_total
-    }
-    if verificacoes_passiveis:
-        _config_oficial = dimensoes_configuradas.intersection(verificacoes_passiveis)
-    else:
-        _config_oficial = set()
-    if modo_consulta_publica:
-        dimensoes_configuradas = _config_oficial | _novas_app_ok_erro
-    else:
-        dimensoes_configuradas = _config_oficial
-
-    total_ranking_ano = len(verificacoes_base_total)
-    # Inclui as novas verificações do app (fora da base oficial) no denominador passível,
-    # garantindo que o percentual não ultrapasse 100%.
-    total_passiveis_analise = len(verificacoes_passiveis) + (
-        len(_novas_app_ok_erro) if modo_consulta_publica else 0
+    st.markdown("### 📊 Resumo executivo")
+    resumo_1, resumo_2, resumo_3, resumo_4 = st.columns(4)
+    resumo_1.metric(
+        "Cobertura conclusiva",
+        f"{_geral['coverage_percent']:.1f}%",
+        help=(
+            f"{_geral['conclusive']} resultados OK/ERRO entre "
+            f"{_geral['expected']} cruzamentos esperados no exercício."
+        ),
     )
-    total_configuradas = len(dimensoes_configuradas)
-    perc_configuradas = (
-        (total_configuradas / total_passiveis_analise) * 100
-        if total_passiveis_analise > 0 else 0.0
+    resumo_2.metric(
+        "Conformidade observada",
+        f"{_geral['conformity_percent']:.1f}%",
+        help="Percentual de conformes somente entre resultados conclusivos.",
     )
-
-    _mask_configuradas = final['Dimensão'].astype(str).isin(dimensoes_configuradas)
-    soma_notas_obtidas = pd.to_numeric(
-        final.loc[_mask_configuradas, 'Nota'], errors='coerce'
-    ).fillna(0).sum()
-    perc_pontos_obtidos = (
-        (soma_notas_obtidas / total_configuradas) * 100
-        if total_configuradas > 0 else 0.0
+    resumo_3.metric("Divergências", _divergencias)
+    resumo_4.metric(
+        "Inconclusivos",
+        _insuficientes + _falhas_tecnicas,
+        help=f"Dados insuficientes: {_insuficientes} · falhas técnicas: {_falhas_tecnicas}",
     )
-
-    # Recalcula acertos/erros somente sobre as verificações em dimensoes_configuradas,
-    # garantindo coerência com total_configuradas (exclui N/A, D1_00001-16 e não-passíveis).
-    _resp_config = final.loc[_mask_configuradas, 'Resposta'].astype(str)
-    _dim_config  = final.loc[_mask_configuradas, 'Dimensão'].astype(str)
-    total_acertos_geral = int(_resp_config.str.startswith('OK').sum())
-    total_erros_geral   = int((_resp_config == 'ERRO').sum())
-    d1_acertos = int(_resp_config[_dim_config.str.startswith('D1_')].str.startswith('OK').sum())
-    d1_erros   = int((_resp_config[_dim_config.str.startswith('D1_')] == 'ERRO').sum())
-    d2_acertos = int(_resp_config[_dim_config.str.startswith('D2_')].str.startswith('OK').sum())
-    d2_erros   = int((_resp_config[_dim_config.str.startswith('D2_')] == 'ERRO').sum())
-    d3_acertos = int(_resp_config[_dim_config.str.startswith('D3_')].str.startswith('OK').sum())
-    d3_erros   = int((_resp_config[_dim_config.str.startswith('D3_')] == 'ERRO').sum())
-    d4_acertos = int(_resp_config[_dim_config.str.startswith('D4_')].str.startswith('OK').sum())
-    d4_erros   = int((_resp_config[_dim_config.str.startswith('D4_')] == 'ERRO').sum())
-
-    # Exibir cards de métricas com destaque visual
-    st.markdown("### 📊 Resultados das Verificações")
-    _badge_fallback = (
-        f'<span style="background:#fff4e6; border:1px solid #ffd8a8; border-radius:999px; '
-        f'padding:4px 10px; font-size:0.82rem; color:#c2410c;">'
-        f'⚠️ Sem ranking oficial publicado para {ano} — referência da última base oficial fechada ({_label_ano_base})'
-        f'</span>'
-        if base_e_fallback else '<!-- sem fallback -->'
-    )
-    _label_total_ranking = (
-        f"Total do Ranking {_label_ano_base} (base oficial fechada)"
-        if base_e_fallback else f"Total do Ranking {_label_ano_base}"
-    )
-    _consulta_com_novas = bool(modo_consulta_publica and _novas_app_ok_erro)
-    _passiveis_partes = []
-    if base_e_fallback:
-        _passiveis_partes.append(f"base {_label_ano_base}")
-    if _consulta_com_novas:
-        _passiveis_partes.append("novas verificações configuradas no app")
-    _label_passiveis = (
-        f"Passíveis de análise ({' + '.join(_passiveis_partes)})"
-        if _passiveis_partes else "Passíveis de análise"
-    )
-    _legenda_passiveis = (
-        f"Excluindo D1_00001 a D1_00016. Inclui {len(_novas_app_ok_erro)} novas em consulta pública configurada(s) no app."
-        if (modo_consulta_publica and _novas_app_ok_erro) else "(exclui D1_00001 a D1_00016)"
-    )
-    if total_passiveis_analise > 0:
-        st.markdown(
-            f"""
-            <div style="background: linear-gradient(135deg, #f8f9fa 0%, #f1f3f5 100%); border: 1px solid #dee2e6;
-                        border-radius: 12px; padding: 14px 16px; margin: 0 0 14px 0;">
-                <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; color:#495057;">
-                    <span style="background:#ffffff; border:1px solid #dee2e6; border-radius:999px; padding:4px 10px; font-size:0.86rem;">
-                        <strong>Ano selecionado:</strong> {ano}
-                    </span>
-                    <span style="background:#ffffff; border:1px solid #dee2e6; border-radius:999px; padding:4px 10px; font-size:0.86rem;">
-                        <strong>Ente:</strong> {cod} ({ente})
-                    </span>
-                    {_badge_fallback}
-                </div>
-                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap:10px;">
-                    <div style="background:#ffffff; border:1px solid #e9ecef; border-radius:10px; padding:10px 12px;">
-                        <div style="font-size:0.78rem; color:#6c757d; text-transform:uppercase; letter-spacing:0.4px;">{_label_total_ranking}</div>
-                        <div style="font-size:1.35rem; color:#212529; font-weight:700;">{total_ranking_ano}</div>
-                    </div>
-                    <div style="background:#ffffff; border:1px solid #e9ecef; border-radius:10px; padding:10px 12px;">
-                        <div style="font-size:0.78rem; color:#6c757d; text-transform:uppercase; letter-spacing:0.4px;">{_label_passiveis}</div>
-                        <div style="font-size:1.35rem; color:#212529; font-weight:700;">{total_passiveis_analise}</div>
-                        <div style="font-size:0.75rem; color:#868e96;">{_legenda_passiveis}</div>
-                    </div>
-                    <div style="background:#ffffff; border:1px solid #e9ecef; border-radius:10px; padding:10px 12px;">
-                        <div style="font-size:0.78rem; color:#6c757d; text-transform:uppercase; letter-spacing:0.4px;">Analisadas no app</div>
-                        <div style="font-size:1.35rem; color:#0b7285; font-weight:700;">{total_configuradas} ({perc_configuradas:.1f}%)</div>
-                    </div>
-                    <div style="background:#fff9db; border:1px solid #ffe066; border-radius:10px; padding:10px 12px;">
-                        <div style="font-size:0.78rem; color:#6c757d; text-transform:uppercase; letter-spacing:0.4px;">Pontos obtidos (estimativa aproximada do app)</div>
-                        <div style="display:flex; align-items:baseline; gap:8px;">
-                            <div style="font-size:1.8rem; color:#5f3dc4; font-weight:800;">{perc_pontos_obtidos:.1f}%</div>
-                            <div style="font-size:0.9rem; color:#868e96; font-weight:500;">{soma_notas_obtidas:.2f} / {total_configuradas} pts</div>
-                        </div>
-                        <div style="font-size:0.72rem; color:#e67700; margin-top:4px;">
-                            ⚠️ Valor estimado (não oficial) com base nos dados calculados e configurados no app (sujeito a variações em relação ao resultado oficial)
-                        </div>
-                    </div>
-                </div>
-                <div style="margin-top:10px; font-size:0.95rem; color:#495057;">
-                    Das <strong>{total_configuradas}</strong> verificações:
-                    <span style="color:#198754; font-weight:600;">✅ {total_acertos_geral} acerto(s)</span> ·
-                    <span style="color:#dc3545; font-weight:600;">❌ {total_erros_geral} erro(s)</span>
-                </div>
-                <div style="margin-top:10px; padding-top:10px; border-top:1px solid #e9ecef; font-size:0.92rem; color:#495057;">
-                    <strong style="color:#5f3dc4;">CAPAG</strong> — entre as verificações deste escopo no resultado (base oficial {_label_ano_base})
-                    (<strong>{capag_total_linhas}</strong> linha(s) na tabela abaixo),
-                    <strong>{capag_classificadas}</strong> com resultado <strong>OK/ERRO</strong>:
-                    <span style="color:#198754; font-weight:600;">✅ {capag_acertos} acerto(s)</span>
-                    ·
-                    <span style="color:#dc3545; font-weight:600;">❌ {capag_erros} erro(s)</span>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        st.caption(
-            f'Nenhuma verificação passível de análise automática para {cod} ({ente}) no exercício {ano}.'
-        )
-
-    # Expander: verificações passíveis mas sem resultado OK/ERRO para este ente
-    if verificacoes_passiveis:
-        nao_analisadas = sorted(verificacoes_passiveis - dimensoes_configuradas)
-        if nao_analisadas:
-            label_exp = (
-                f"⚠️ {len(nao_analisadas)} verificação(ões) da base oficial {_label_ano_base} sem análise concluída para este ente"
-            )
-            with st.expander(label_exp, expanded=False):
-                _texto_origem = (
-                    f"da base oficial fechada de **{_label_ano_base}** (referência usada enquanto "
-                    f"o ranking de {ano} não é publicado)"
-                    if base_e_fallback
-                    else f"da base oficial do ranking **{_label_ano_base}**"
-                )
-                st.caption(
-                    f"Estas verificações constam {_texto_origem} para o ente selecionado, "
-                    "mas não produziram resultado OK ou ERRO no app. "
-                    "Isso pode ocorrer por pendência de implementação ou porque a metodologia "
-                    "exige cruzamento com bases externas que não estão disponíveis na API pública do SICONFI."
-                )
-                codigos_base_externa = {"D2_00097"}
-                nao_analisadas_base_externa = sorted(set(nao_analisadas) & codigos_base_externa)
-                if nao_analisadas_base_externa:
-                    st.info(
-                        "ℹ️ **Casos com dependência de base externa à API**: "
-                        + ", ".join(nao_analisadas_base_externa)
-                    )
-                    st.caption(
-                        "Exemplo — **D2_00097 (CAPAG)**: a metodologia STN compara o total de "
-                        "transferências especiais de emendas individuais transferidas pela União "
-                        "com o total de receitas dessas transferências registradas pelo ente. "
-                        "Parte desse cruzamento depende de dados do Tesouro/Portal da Transparência, "
-                        "que não vêm no endpoint `msc_orcamentaria`."
-                    )
-                # Agrupa por dimensão para leitura mais fácil
-                grupos: dict[str, list[str]] = {}
-                for cod_v in nao_analisadas:
-                    dim = cod_v.split('_')[0]
-                    grupos.setdefault(dim, []).append(cod_v)
-                for dim, codigos in sorted(grupos.items()):
-                    st.markdown(f"**{dim}** — {len(codigos)} verificação(ões)")
-                    st.code(", ".join(codigos), language=None)
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(f"""
-        <div style="background-color: #f1f3f5; padding: 16px; border-radius: 10px; text-align: center; border: 2px solid #ced4da;">
-            <h4 style="color: #343a40; margin: 0;">D2 - Análise</h4>
-            <div style="display: flex; justify-content: space-around; margin-top: 12px;">
-                <div>
-                    <div style="color: #28a745; font-weight: 700;">✅ Acertos</div>
-                    <div style="font-size: 28px; color: #155724;">{d2_acertos}</div>
-                </div>
-                <div>
-                    <div style="color: #dc3545; font-weight: 700;">❌ Erros</div>
-                    <div style="font-size: 28px; color: #721c24;">{d2_erros}</div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"""
-        <div style="background-color: #f1f3f5; padding: 16px; border-radius: 10px; text-align: center; border: 2px solid #ced4da;">
-            <h4 style="color: #343a40; margin: 0;">D3 - Análise</h4>
-            <div style="display: flex; justify-content: space-around; margin-top: 12px;">
-                <div>
-                    <div style="color: #28a745; font-weight: 700;">✅ Acertos</div>
-                    <div style="font-size: 28px; color: #155724;">{d3_acertos}</div>
-                </div>
-                <div>
-                    <div style="color: #dc3545; font-weight: 700;">❌ Erros</div>
-                    <div style="font-size: 28px; color: #721c24;">{d3_erros}</div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col3:
-        st.markdown(f"""
-        <div style="background-color: #f1f3f5; padding: 16px; border-radius: 10px; text-align: center; border: 2px solid #ced4da;">
-            <h4 style="color: #343a40; margin: 0;">D4 - Análise</h4>
-            <div style="display: flex; justify-content: space-around; margin-top: 12px;">
-                <div>
-                    <div style="color: #28a745; font-weight: 700;">✅ Acertos</div>
-                    <div style="font-size: 28px; color: #155724;">{d4_acertos}</div>
-                </div>
-                <div>
-                    <div style="color: #dc3545; font-weight: 700;">❌ Erros</div>
-                    <div style="font-size: 28px; color: #721c24;">{d4_erros}</div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
 
     st.caption(
-        (
-            f"Os cards D2–D4 e CAPAG consideram a base oficial de {_label_ano_base} "
-            f"(fallback enquanto o ranking {ano} não está publicado)."
-            if base_e_fallback
-            else f"Os cards D2–D4 e CAPAG consideram a base oficial de {_label_ano_base}."
-        )
+        "Resultado do aplicativo, não nota oficial. Cobertura mede conclusões "
+        "OK/ERRO; N/A e falhas de execução não são divergências."
+    )
+    st.caption(
+        f"Escopo metodológico {ano}: {_geral['expected']} regras · "
+        f"conformes: {_conformes} · divergências: {_divergencias} · "
+        f"dados insuficientes: {_insuficientes} · não aplicáveis: {_nao_aplicaveis} · "
+        f"falhas técnicas: {_falhas_tecnicas} · sem linha de resultado: {_geral['missing']}."
     )
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # ---------------------------------------------------------------------------------
-    # Painel: Novas verificações sob consulta pública STN 2025.
-    # Controlado por `modo_consulta_publica`, derivado da configuração central.
-    # ---------------------------------------------------------------------------------
-    if modo_consulta_publica:
-        _novas_consulta_2025_d1 = {
-            'D1_00039', 'D1_00040', 'D1_00041', 'D1_00042', 'D1_00043', 'D1_00044',
-        }
-        _novas_consulta_2025_d2 = {
-            'D2_00100', 'D2_00101', 'D2_00102', 'D2_00103', 'D2_00104', 'D2_00105',
-        }
-        _novas_consulta_2025_d3 = {'D3_00046', 'D3_00048', 'D3_00049', 'D3_00050', 'D3_00051', 'D3_00052', 'D3_00054', 'D3_00055', 'D3_00056'}
-        _novas_consulta_2025_d4 = {'D4_00046', 'D4_00047', 'D4_00048', 'D4_00049', 'D4_00050', 'D4_00051'}
-        # Total de verificações novas sob consulta pública (todas as dimensões)
-        _total_novas_consulta = 46
-        # Passíveis de análise automática (confirmadas na metodologia sob consulta)
-        _passiveis_novas_consulta = 41
-        # Configuradas no app até o momento
-        _novas_consulta_todas = (
-            _novas_consulta_2025_d1
-            | _novas_consulta_2025_d2
-            | _novas_consulta_2025_d3
-            | _novas_consulta_2025_d4
+    _status_por_codigo = _resumo_diagnostico["status_by_code"]
+    _rotulos_status = {
+        DiagnosticStatus.DIVERGENCIA: "Divergência",
+        DiagnosticStatus.FALHA_TECNICA: "Falha técnica",
+        DiagnosticStatus.DADOS_INSUFICIENTES: "Dados insuficientes",
+        DiagnosticStatus.CONFORME: "Conforme",
+        DiagnosticStatus.NAO_APLICAVEL: "Não aplicável",
+    }
+    _ctx_detalhes = locals().copy()
+    _tabelas_detalhe = {
+        codigo: _ctx_detalhes.get(f"{codigo.lower()}_t", pd.DataFrame())
+        for codigo in final["Dimensão"].astype(str)
+    }
+    with st.container(key="results_explorer"):
+        render_results_explorer(
+            final,
+            _tabelas_detalhe,
+            context_key=f"results_{cod}_{ano}",
         )
-        _novas_configuradas_no_app = {
-            d for d, r in zip(final['Dimensão'].dropna().astype(str), final['Resposta'].astype(str))
-            if d in _novas_consulta_todas and (r.startswith('OK') or r == 'ERRO')
-        }
-        _n_config = len(_novas_configuradas_no_app)
-        _n_config_d1 = len(_novas_configuradas_no_app & _novas_consulta_2025_d1)
-        _n_config_d2 = len(_novas_configuradas_no_app & _novas_consulta_2025_d2)
-        _n_config_d3 = len(_novas_configuradas_no_app & _novas_consulta_2025_d3)
-        _n_config_d4 = len(_novas_configuradas_no_app & _novas_consulta_2025_d4)
-
-        _acertos_novas = sum(
-            1 for d, r in zip(final['Dimensão'].astype(str), final['Resposta'].astype(str))
-            if d in _novas_configuradas_no_app and r.startswith('OK')
-        )
-        _erros_novas = sum(
-            1 for d, r in zip(final['Dimensão'].astype(str), final['Resposta'].astype(str))
-            if d in _novas_configuradas_no_app and r == 'ERRO'
-        )
-
-        with st.expander("🔎 Novas verificações – Sob Consulta Pública STN 2025 (prévia)", expanded=False):
-            st.caption(
-                "Estas verificações integram a metodologia do ranking 2025 divulgada pela STN "
-                "e estão sendo progressivamente configuradas no app. "
-                "Os números abaixo são separados do painel principal, que segue referenciado "
-                f"na base oficial fechada (exercício {_label_ano_base}). "
-                "Quando a base de 2025 for homologada, desative FLAG_MODO_CONSULTA_PUBLICA no topo da página para ocultar este painel."
-            )
-            st.markdown(
-                f"""
-                <div style="background: linear-gradient(135deg, #e8f4fd 0%, #dbeafe 100%);
-                            border: 1px solid #93c5fd; border-radius: 12px;
-                            padding: 14px 16px; margin: 6px 0 10px 0;">
-                    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px;">
-                        <div style="background:#fff; border:1px solid #bfdbfe; border-radius:10px; padding:10px 12px;">
-                            <div style="font-size:0.76rem; color:#6c757d; text-transform:uppercase;">Total sob consulta</div>
-                            <div style="font-size:1.4rem; color:#1e40af; font-weight:700;">{_total_novas_consulta}</div>
-                        </div>
-                        <div style="background:#fff; border:1px solid #bfdbfe; border-radius:10px; padding:10px 12px;">
-                            <div style="font-size:0.76rem; color:#6c757d; text-transform:uppercase;">Passíveis de análise</div>
-                            <div style="font-size:1.4rem; color:#1e40af; font-weight:700;">{_passiveis_novas_consulta}</div>
-                        </div>
-                        <div style="background:#fff; border:1px solid #bfdbfe; border-radius:10px; padding:10px 12px;">
-                            <div style="font-size:0.76rem; color:#6c757d; text-transform:uppercase;">Configuradas no app</div>
-                            <div style="font-size:1.4rem; color:#1e40af; font-weight:700;">{_n_config}</div>
-                            <div style="font-size:0.75rem; color:#868e96;">D1: {_n_config_d1} · D2: {_n_config_d2} · D3: {_n_config_d3} · D4: {_n_config_d4}</div>
-                        </div>
-                        <div style="background:#fff; border:1px solid #bfdbfe; border-radius:10px; padding:10px 12px;">
-                            <div style="font-size:0.76rem; color:#6c757d; text-transform:uppercase;">Resultado (app)</div>
-                            <div style="font-size:0.95rem; margin-top:4px;">
-                                <span style="color:#198754; font-weight:600;">✅ {_acertos_novas} acerto(s)</span>
-                                &nbsp;·&nbsp;
-                                <span style="color:#dc3545; font-weight:600;">❌ {_erros_novas} erro(s)</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-    
-
-
-    # Coluna CAPAG só na visualização (export Excel mantém colunas originais)
-    _capag_series = final.apply(
-        lambda r: 'Sim'
-        if eh_verificacao_capag(str(r.get('Dimensão', '')), r.get('Descrição da Dimensão'))
-        else '',
-        axis=1,
-    )
-    final_view = final.copy()
-    final_view.insert(1, 'CAPAG', _capag_series)
-
-    # Formatar a nota com 2 casas decimais e ocultar o índice
-    final_styled = final_view.style.apply(highlight_resposta, axis=1).format({
-        'Nota': '{:.2f}'
-    }).hide(axis='index')
-
-    # Configurar larguras das colunas (usar pixels para maior controle)
-    # Ajustar altura da tabela automaticamente conforme quantidade de linhas
-    # Fórmula: altura do cabeçalho (38px) + (número de linhas × altura da linha (35px)) + margem (10px)
-    num_linhas = len(final_view)
-    altura_tabela = 38 + (num_linhas * 35) + 10
-
-    # Definir altura mínima de 100px e máxima de 500px
-    altura_tabela = max(100, min(altura_tabela, 500))
-
-    st.dataframe(
-        final_styled,
-        use_container_width=True,
-        height=altura_tabela,
-        hide_index=True,
-        column_config={
-            "Dimensão": st.column_config.TextColumn("Dimensão", width=80),
-            "CAPAG": st.column_config.TextColumn("CAPAG", width=52, help="Sim = métrica no escopo CAPAG (Ranking STN)"),
-            "Resposta": st.column_config.TextColumn("Resposta", width=80),
-            "Descrição da Dimensão": st.column_config.TextColumn("Descrição da Dimensão", width=280),
-            "Nota": st.column_config.NumberColumn("Nota", width=80, format="%.2f"),
-            "OBS": st.column_config.TextColumn("OBS", width=250)
-        }
-    )
-
-
-    #####################################################################################
-    #####################################################################################
-
     # Exportar resultados + comparação (fragmento: não reexecuta API/análises ao baixar ou carregar ficheiros)
-    st.session_state["_final_df_export"] = final.copy()
-    st.session_state["_export_meta"] = {"cod": cod, "ente": ente, "ano": ano}
-    fragmento_resultados_excel_e_comparar()
+    final_export = final.copy()
+    final_export.insert(
+        2,
+        "Situação diagnóstica",
+        final_export["Dimensão"].map(
+            lambda code: _rotulos_status.get(
+                _status_por_codigo.get(str(code)),
+                "Falha técnica",
+            )
+        ),
+    )
+    final_export.insert(
+        3,
+        "CAPAG",
+        final_export.apply(
+            lambda row: "Sim"
+            if eh_verificacao_capag(
+                row.get("Dimensão"),
+                row.get("Descrição da Dimensão"),
+            )
+            else "Não",
+            axis=1,
+        ),
+    )
+    st.session_state["_final_df_export"] = final_export
+    st.session_state["_export_meta"] = {
+        "cod": cod,
+        "ente": ente,
+        "ano": ano,
+        "escopo_esperado": _geral["expected"],
+        "cobertura_conclusiva": _geral["coverage_percent"] / 100,
+        "conformidade_observada": _geral["conformity_percent"] / 100,
+        "gerado_em": pd.Timestamp.now(tz="America/Sao_Paulo").isoformat(),
+    }
+    with st.popover(
+        "Exportar ou comparar resultados",
+        icon="📥",
+        width="stretch",
+    ):
+        fragmento_resultados_excel_e_comparar()
 
-    status_text.text("📊 Gerando resultados...")
-    progress_bar.progress(92)
-
-
-    
-
-
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-    #####################################################################################
-
-
-    #############################################################################
-    # EXPANDERS AGRUPADOS POR DIMENSÃO (USANDO TABS)
-    #############################################################################
-
-    # Contar acertos/erros de cada dimensão
-    d2_apenas = final[final['Dimensão'].str.startswith('D2_')]
-    d2_acertos_tab = len(d2_apenas[d2_apenas['Nota'] >= 0.99])
-    d2_total_tab = len(d2_apenas)
-
-    d3_apenas = final[final['Dimensão'].str.startswith('D3_')]
-    d3_acertos_tab = len(d3_apenas[d3_apenas['Nota'] >= 0.99])
-    d3_total_tab = len(d3_apenas)
-
-    d4_apenas = final[final['Dimensão'].str.startswith('D4_')]
-    d4_acertos_tab = len(d4_apenas[d4_apenas['Nota'] >= 0.99])
-    d4_total_tab = len(d4_apenas)
-
-    st.divider()
-
-    st.markdown("### 🧮 Análise das Verificações por Dimensão")
-
-    # Criar tabs para cada dimensão ativa
-    tab_d2, tab_d3, tab_d4 = st.tabs([
-        f"🔍 D2 - DCA ({d2_acertos_tab}/{d2_total_tab} OK)",
-        f"🔍 D3 - RREO/RGF ({d3_acertos_tab}/{d3_total_tab} OK)",
-        f"🔍 D4 - DCA x RREO ({d4_acertos_tab}/{d4_total_tab} OK)"
-    ])
-
-
-    ############################################################################
-    ############################################################################
-    ############################################################################
-    ############################################################################
-    ############################################################################
-    ############################################################################
-    ############################################################################
-
-    # =========================================================================
-    # TAB D2 - QUALIDADE DOS DADOS DCA E MSC
-    # =========================================================================
-    with tab_d2:
-        render_tab_d2(tab_d2, locals())
-
-    # =========================================================================
-    # TAB D3 - CRUZAMENTO RREO/RGF
-    # =========================================================================
-    with tab_d3:
-        render_tab_d3(tab_d3, locals())
-
-    # =========================================================================
-    # TAB D4 - CRUZAMENTO DCA x RREO
-    # =========================================================================
-    with tab_d4:
-        render_tab_d4(tab_d4, locals())
-
-
-
+    st.session_state.analise_concluida = True
+    _atualizar_stepper(results_ready=True)
 
     # Finalizar
     progress_bar.progress(100)
     status_text.text("✅ Análise concluída com sucesso!")
-    st.success("🎉 Todos os dados foram carregados e processados!")
-
-
-    # Rodapé
-    st.markdown("---")
-    st.markdown(
-        f"""
-    <div style='text-align: center; color: #666;'>
-        <small>CRUZAMENTOS SICONFI | Desenvolvido por Marcelo Jandussi | © {pd.Timestamp.today().year}</small>
-    </div>
-    """,
-        unsafe_allow_html=True,
+    st.success(
+        "Análise concluída. Revise primeiro as divergências e os resultados "
+        "inconclusivos; o resultado do app não substitui a apuração oficial."
     )
+
+    app_footer()
 
 # Executar a função principal
 if __name__ == "__main__":

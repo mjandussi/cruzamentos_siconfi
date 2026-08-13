@@ -672,6 +672,31 @@ def _comparar_rp_dca_g_msc_encerr(
         'Restos a Pagar Processados Cancelados': ['6329'],
     }
 
+    colunas_detalhe = [
+        'item_rp', 'conta_msc', 'valor_dca', 'valor_msc', 'dif',
+    ]
+    fontes_invalidas = []
+    if not isinstance(df_dca_g, pd.DataFrame) or df_dca_g.empty:
+        fontes_invalidas.append('DCA Anexo I-G ausente')
+    elif not {'conta', 'coluna', 'valor'}.issubset(df_dca_g.columns):
+        fontes_invalidas.append('DCA Anexo I-G sem as colunas conta, coluna e valor')
+    if not isinstance(rp_encerramento, pd.DataFrame) or rp_encerramento.empty:
+        fontes_invalidas.append('MSC de encerramento ausente')
+    elif not {'conta_contabil', 'funcao', 'DIGITO_INTRA', 'valor'}.issubset(rp_encerramento.columns):
+        fontes_invalidas.append(
+            'MSC de encerramento sem as colunas conta_contabil, funcao, DIGITO_INTRA e valor'
+        )
+
+    if fontes_invalidas:
+        resultado = pd.DataFrame([{
+            'Dimensão': codigo_dimensao,
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': descricao_dimensao,
+            'Nota': None,
+            'OBS': 'Dados insuficientes: ' + '; '.join(fontes_invalidas),
+        }])
+        return resultado, pd.DataFrame(columns=colunas_detalhe)
+
     dca_base = df_dca_g.copy()
     if 'cod_conta' in dca_base.columns:
         dca_base = dca_base[dca_base['cod_conta'] == 'TotalDespesas']
@@ -682,6 +707,7 @@ def _comparar_rp_dca_g_msc_encerr(
         ].copy()
     else:
         dca_filtrado = filtro_dca(dca_base, colunas_rp).copy()
+    dca_filtrado['valor'] = pd.to_numeric(dca_filtrado['valor'], errors='coerce').fillna(0)
     dca_agrupado = dca_filtrado.groupby('coluna', as_index=False)['valor'].sum()
     mapa_dca = dict(zip(dca_agrupado['coluna'], dca_agrupado['valor']))
 
@@ -691,11 +717,15 @@ def _comparar_rp_dca_g_msc_encerr(
     linhas = []
     for coluna in colunas_rp:
         prefixos = mapa_contas_msc[coluna]
-        valor_dca = float(pd.to_numeric(mapa_dca.get(coluna, 0), errors='coerce'))
+        valor_dca = float(
+            pd.to_numeric(pd.Series([mapa_dca.get(coluna, 0)]), errors='coerce')
+            .fillna(0)
+            .iloc[0]
+        )
         serie_conta = msc_recorte['conta_contabil'].astype(str)
-        mascara_contas = False
+        mascara_contas = pd.Series(False, index=msc_recorte.index)
         for prefixo in prefixos:
-            mascara_contas = mascara_contas | serie_conta.str.startswith(prefixo)
+            mascara_contas = mascara_contas | serie_conta.str.startswith(prefixo, na=False)
         valor_msc = float(
             pd.to_numeric(
                 msc_recorte.loc[
@@ -735,7 +765,96 @@ def _comparar_rp_dca_g_msc_encerr(
     return d2, d2_t
 
 
-_REMOVED_ANALYSES_ARITY = {'d2_00002': 2, 'd2_00003': 2, 'd2_00004': 2, 'd2_00005': 2, 'd2_00006': 2, 'd2_00007': 2, 'd2_00008': 2, 'd2_00010': 2, 'd2_00011': 2, 'd2_00012': 3, 'd2_00013': 5, 'd2_00014': 3, 'd2_00015': 2, 'd2_00016': 2, 'd2_00017': 2, 'd2_00018': 2, 'd2_00019': 2, 'd2_00020': 2, 'd2_00021': 2, 'd2_00023': 2, 'd2_00024': 2, 'd2_00028': 5, 'd2_00029': 4, 'd2_00030': 2, 'd2_00031': 2, 'd2_00032': 2, 'd2_00033': 2, 'd2_00034': 2, 'd2_00035': 2, 'd2_00036': 2, 'd2_00037': 2, 'd2_00038': 2, 'd2_00039': 2, 'd2_00040': 2, 'd2_00045': 2, 'd2_00047': 2, 'd2_00051': 2, 'd2_00052': 2, 'd2_00053': 2, 'd2_00054': 2, 'd2_00055': 2, 'd2_00059': 2, 'd2_00060': 2, 'd2_00061': 2, 'd2_00066': 2, 'd2_00067': 2, 'd2_00068': 2, 'd2_00076': 2, 'd2_00077': 2, 'd2_00079': 2, 'd2_00080': 2, 'd2_00081': 2, 'd2_00082': 2, 'd2_00083': 2, 'd2_00084': 2, 'd2_00085': 2, 'd2_00086': 2, 'd2_00087': 2, 'd2_00088': 2, 'd2_00089': 2, 'd2_00093': 2, 'd2_00094': 2, 'd2_00095': 2, 'd2_00099': 2, 'd2_00100': 2, 'd2_00101': 2, 'd2_00102': 2, 'd2_00103': 2, 'd2_00104': 2, 'd2_00105': 2}
+def d2_00100(rp_encerramento, df_dca_g):
+    """Compara RP da função 10 (Saúde), exceto intra, entre MSC e DCA I-G."""
+    return _comparar_rp_dca_g_msc_encerr(
+        df_dca_g=df_dca_g,
+        rp_encerramento=rp_encerramento,
+        codigo_dimensao='D2_00100',
+        descricao_dimensao=(
+            'Compara RP da função 10 (Saúde) no Anexo I-G da DCA '
+            'com a MSC de encerramento (exceto-intra)'
+        ),
+        conta_dca='10 - Saúde',
+        filtro_msc=lambda df: df[(df['funcao'] == '10') & (df['DIGITO_INTRA'] != '91')],
+    )
+
+
+def d2_00101(rp_encerramento, df_dca_g):
+    """Compara RP da função 12 (Educação), exceto intra, entre MSC e DCA I-G."""
+    return _comparar_rp_dca_g_msc_encerr(
+        df_dca_g=df_dca_g,
+        rp_encerramento=rp_encerramento,
+        codigo_dimensao='D2_00101',
+        descricao_dimensao=(
+            'Compara RP da função 12 (Educação) no Anexo I-G da DCA '
+            'com a MSC de encerramento (exceto-intra)'
+        ),
+        conta_dca='12 - Educação',
+        filtro_msc=lambda df: df[(df['funcao'] == '12') & (df['DIGITO_INTRA'] != '91')],
+    )
+
+
+def d2_00102(rp_encerramento, df_dca_g):
+    """Compara RP da função 09 (Previdência), exceto intra, entre MSC e DCA I-G."""
+    return _comparar_rp_dca_g_msc_encerr(
+        df_dca_g=df_dca_g,
+        rp_encerramento=rp_encerramento,
+        codigo_dimensao='D2_00102',
+        descricao_dimensao=(
+            'Compara RP da função 09 (Previdência Social) no Anexo I-G da DCA '
+            'com a MSC de encerramento (exceto-intra)'
+        ),
+        conta_dca='09 - Previdência Social',
+        filtro_msc=lambda df: df[(df['funcao'] == '09') & (df['DIGITO_INTRA'] != '91')],
+    )
+
+
+def d2_00103(rp_encerramento, df_dca_g):
+    """Compara RP das funções exceto 09, 10 e 12, sem intra, entre MSC e DCA I-G."""
+    return _comparar_rp_dca_g_msc_encerr(
+        df_dca_g=df_dca_g,
+        rp_encerramento=rp_encerramento,
+        codigo_dimensao='D2_00103',
+        descricao_dimensao=(
+            'Compara RP das demais funções (exceto 09, 10 e 12) no Anexo I-G '
+            'da DCA com a MSC de encerramento (exceto-intra)'
+        ),
+        conta_dca=None,
+        filtro_msc=lambda df: df[
+            (~df['funcao'].isin(['09', '10', '12'])) &
+            (df['DIGITO_INTRA'] != '91')
+        ],
+        filtro_dca=lambda dca_base, colunas_rp: dca_base[
+            (dca_base['coluna'].isin(colunas_rp)) &
+            (~dca_base['conta'].isin([
+                '09 - Previdência Social',
+                '10 - Saúde',
+                '12 - Educação',
+                'Despesas Exceto Intraorçamentárias',
+                'Despesas Intraorçamentárias',
+            ])) &
+            (dca_base['conta'].astype(str).str.match(r'^\d{2} - ', na=False))
+        ],
+    )
+
+
+def d2_00104(rp_encerramento, df_dca_g):
+    """Compara os RP intraorçamentários entre MSC e DCA I-G."""
+    return _comparar_rp_dca_g_msc_encerr(
+        df_dca_g=df_dca_g,
+        rp_encerramento=rp_encerramento,
+        codigo_dimensao='D2_00104',
+        descricao_dimensao=(
+            'Compara RP intraorçamentários no Anexo I-G da DCA '
+            'com a MSC de encerramento'
+        ),
+        conta_dca='Despesas Intraorçamentárias',
+        filtro_msc=lambda df: df[df['DIGITO_INTRA'] == '91'],
+    )
+
+
+_REMOVED_ANALYSES_ARITY = {'d2_00002': 2, 'd2_00003': 2, 'd2_00004': 2, 'd2_00005': 2, 'd2_00006': 2, 'd2_00007': 2, 'd2_00008': 2, 'd2_00010': 2, 'd2_00011': 2, 'd2_00012': 3, 'd2_00013': 5, 'd2_00014': 3, 'd2_00015': 2, 'd2_00016': 2, 'd2_00017': 2, 'd2_00018': 2, 'd2_00019': 2, 'd2_00020': 2, 'd2_00021': 2, 'd2_00023': 2, 'd2_00024': 2, 'd2_00028': 5, 'd2_00029': 4, 'd2_00030': 2, 'd2_00031': 2, 'd2_00032': 2, 'd2_00033': 2, 'd2_00034': 2, 'd2_00035': 2, 'd2_00036': 2, 'd2_00037': 2, 'd2_00038': 2, 'd2_00039': 2, 'd2_00040': 2, 'd2_00045': 2, 'd2_00047': 2, 'd2_00051': 2, 'd2_00052': 2, 'd2_00053': 2, 'd2_00054': 2, 'd2_00055': 2, 'd2_00059': 2, 'd2_00060': 2, 'd2_00061': 2, 'd2_00066': 2, 'd2_00067': 2, 'd2_00068': 2, 'd2_00076': 2, 'd2_00077': 2, 'd2_00079': 2, 'd2_00080': 2, 'd2_00081': 2, 'd2_00082': 2, 'd2_00083': 2, 'd2_00084': 2, 'd2_00085': 2, 'd2_00086': 2, 'd2_00087': 2, 'd2_00088': 2, 'd2_00089': 2, 'd2_00093': 2, 'd2_00094': 2, 'd2_00095': 2, 'd2_00099': 2, 'd2_00105': 2}
 
 
 def _removed_analysis_result(code):

@@ -621,12 +621,21 @@ def d3_00009(df_rgf_5e, rgf_o, df_rreo_7, tipo_ente):
     tolerancia_centavos = 0.99999
     tolerancia_zero = 1e-3
 
-    diferenca_encontrada = abs(dif_total)
+    # RPP e RPNP representam categorias distintas e precisam conferir
+    # individualmente. Avaliar apenas o total permitiria que uma divergência
+    # positiva em uma categoria anulasse uma divergência negativa na outra.
+    diferencas_por_tipo = np.array([abs(dif_rpp), abs(dif_rpnp_tipo)], dtype=float)
+    diferencas_sao_zero = np.isclose(
+        diferencas_por_tipo,
+        0,
+        atol=tolerancia_zero,
+        rtol=0,
+    ).all()
 
-    if np.isclose(diferenca_encontrada, 0, atol=tolerancia_zero):
+    if diferencas_sao_zero:
         resposta_d3_00009 = 'OK'
         nota_d3_00009 = 1.00
-    elif diferenca_encontrada <= tolerancia_centavos and not np.isclose(diferenca_encontrada, 0, atol=tolerancia_zero):
+    elif (diferencas_por_tipo <= tolerancia_centavos).all():
         resposta_d3_00009 = 'OK (com dif centavos)'
         nota_d3_00009 = 1.00
     else:
@@ -1663,6 +1672,1884 @@ def _d3_00029_nd_mask(nd: pd.Series) -> pd.Series:
     return mask_31 | mask_33_34 | mask_fixos
 
 
+def d3_00017(df_rreo_6, df_rreo_7):
+    descricao = (
+        'Igualdade entre os Restos a Pagar (Processados e Não-Processados) '
+        'Pagos no Exercício'
+    )
+    colunas_rreo_6 = {'coluna', 'cod_conta', 'valor'}
+    colunas_rreo_7 = {'conta', 'cod_conta', 'valor'}
+    if (
+        not isinstance(df_rreo_6, pd.DataFrame)
+        or df_rreo_6.empty
+        or not colunas_rreo_6.issubset(df_rreo_6.columns)
+        or not isinstance(df_rreo_7, pd.DataFrame)
+        or df_rreo_7.empty
+        or not colunas_rreo_7.issubset(df_rreo_7.columns)
+    ):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00017',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': descricao,
+            'Nota': None,
+            'OBS': 'RREO Anexo 6 e/ou Anexo 7 indisponíveis ou incompletos',
+        }]), pd.DataFrame()
+
+    rpp_pago_rreo_7 = df_rreo_7.query(
+        'cod_conta == "RestosAPagarProcessadosENaoProcessadosLiquidadosPagos" '
+        '& conta == "TOTAL (III) = (I + II)"'
+    )
+    rpp_pago_rreo_7['dimensao'] = 'D3_00017_RPP'
+    rpp_pago_rreo_7 = rpp_pago_rreo_7.groupby('dimensao').agg({'valor': 'sum'})
+
+    rpp_pago_rreo_6 = df_rreo_6.query(
+        'coluna == "RESTOS A PAGAR PROCESSADOS PAGOS (b)" & ('
+        'cod_conta == "DespesasCorrentesExcetoFontesRPPS" | '
+        'cod_conta == "DespesasPrimariasCorrentesComFontesRPPS" | '
+        'cod_conta == "DespesasDeCapitalExcetoFontesRPPS" | '
+        'cod_conta == "DespesasPrimariasDeCapitalComFontesRPPS" | '
+        'cod_conta == "RREO6ReservaDeContingencia")'
+    )
+    rpp_pago_rreo_6['dimensao'] = 'D3_00017_RPP'
+    rpp_pago_rreo_6 = rpp_pago_rreo_6.groupby('dimensao').agg({'valor': 'sum'})
+
+    rpnp_pago_rreo_7 = df_rreo_7.query(
+        'cod_conta == "RestosAPagarNaoProcessadosPagos" & conta == "TOTAL (III) = (I + II)"'
+    )
+    rpnp_pago_rreo_7['dimensao'] = 'D3_00017_RPNP'
+    rpnp_pago_rreo_7 = rpnp_pago_rreo_7.groupby('dimensao').agg({'valor': 'sum'})
+
+    rpnp_pago_rreo_6 = df_rreo_6.query(
+        'coluna == "PAGOS (c)" & ('
+        'cod_conta == "DespesasCorrentesExcetoFontesRPPS" | '
+        'cod_conta == "DespesasPrimariasCorrentesComFontesRPPS" | '
+        'cod_conta == "DespesasDeCapitalExcetoFontesRPPS" | '
+        'cod_conta == "DespesasPrimariasDeCapitalComFontesRPPS" | '
+        'cod_conta == "RREO6ReservaDeContingencia")'
+    )
+    rpnp_pago_rreo_6['dimensao'] = 'D3_00017_RPNP'
+    rpnp_pago_rreo_6 = rpnp_pago_rreo_6.groupby('dimensao').agg({'valor': 'sum'})
+
+    if any(
+        quadro.empty
+        for quadro in (
+            rpp_pago_rreo_7,
+            rpp_pago_rreo_6,
+            rpnp_pago_rreo_7,
+            rpnp_pago_rreo_6,
+        )
+    ):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00017',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': descricao,
+            'Nota': None,
+            'OBS': 'Linhas de RPP e/ou RPNP pagos ausentes nos Anexos 6 ou 7 do RREO',
+        }]), pd.DataFrame()
+
+    rpp_7 = float(rpp_pago_rreo_7['valor'].sum()) if not rpp_pago_rreo_7.empty else 0.0
+    rpp_6 = float(rpp_pago_rreo_6['valor'].sum()) if not rpp_pago_rreo_6.empty else 0.0
+    rpnp_7 = float(rpnp_pago_rreo_7['valor'].sum()) if not rpnp_pago_rreo_7.empty else 0.0
+    rpnp_6 = float(rpnp_pago_rreo_6['valor'].sum()) if not rpnp_pago_rreo_6.empty else 0.0
+
+    dif_rpp = rpp_7 - rpp_6
+    dif_rpnp = rpnp_7 - rpnp_6
+
+    d3_00017_t = pd.DataFrame([
+        {
+            'fonte': 'RREO — Anexo 07',
+            'rpp_pagos': rpp_7,
+            'rpnp_pagos': rpnp_7,
+        },
+        {
+            'fonte': 'RREO — Anexo 06',
+            'rpp_pagos': rpp_6,
+            'rpnp_pagos': rpnp_6,
+        },
+        {
+            'fonte': 'Diferença (Anexo 07 − Anexo 06)',
+            'rpp_pagos': dif_rpp,
+            'rpnp_pagos': dif_rpnp,
+        },
+    ])
+
+    tolerancia = 0.01
+    condicao = [
+        not np.isclose(dif_rpp, 0.0, atol=tolerancia, rtol=0.0),
+        not np.isclose(dif_rpnp, 0.0, atol=tolerancia, rtol=0.0),
+    ]
+    if any(condicao):
+        resposta_d3_00017 = 'ERRO'
+        nota_d3_00017 = 0.00
+    else:
+        resposta_d3_00017 = 'OK'
+        nota_d3_00017 = 1.00
+
+    d3_00017 = pd.DataFrame([{
+        'Dimensão': 'D3_00017',
+        'Resposta': resposta_d3_00017,
+        'Descrição da Dimensão': descricao,
+        'Nota': nota_d3_00017,
+        'OBS': 'Anexo 6 do RREO e Anexo 7 do RREO'
+    }])
+
+    return d3_00017, d3_00017_t
+
+
+def d3_00026(msc_dez, df_rgf_5e):
+    """
+    CAPAG — Igualdade do saldo de Caixa e Equivalentes de Caixa Bruta por
+    grupos de Fontes de Recursos entre a MSC de dezembro (apenas Poder
+    Executivo) e o RGF Anexo 5 do Poder Executivo.
+
+    Escopo restrito ao Executivo (Direta + Indireta) em ambos os lados,
+    evitando particularidades de layout/preenchimento do RGF Anexo 5 dos
+    demais poderes (Legislativo, Judiciário, MP, Defensoria) e
+    descasamentos com órgãos que não entregam o anexo (TC, RPPS).
+
+    Filtros aplicados:
+    - MSC dezembro (tipo_valor = ending_balance):
+        * conta_contabil iniciando em 11111, 11121 ou 11131 (Caixa e
+          Equivalentes de Caixa Bruta segundo PCASP);
+        * poder_orgao restrito ao Executivo (Direta + Indireta):
+            Estados ........ 10111 + 10112
+            DF ............. 10121 + 10122
+            Municípios ..... 10131 + 10132
+        * fonte_recursos agrupada pelos 3 últimos dígitos do código de FR
+          conforme mapa STN do RGF Anexo 5.
+    - RGF Anexo 5 — apenas Executivo (df_rgf_5e):
+        * cod_conta = DisponibilidadeDeCaixaBruta;
+        * coluna `conta` em uma das linhas detalhadas (totais I/II/III e
+          subtotais hierárquicos — Recursos Vinculados à Educação,
+          Recursos Vinculados à Saúde, Demais Vinculações Decorrentes de
+          Transferências, Demais Vinculações Legais — ficam fora do mapa
+          e por isso não entram no critério).
+
+    Regra: para cada grupo de FR, MSC == RGF (tolerância 0,01). OK quando
+    todos os grupos batem; ERRO quando há divergência em algum grupo.
+    N/A apenas quando MSC ou RGF Anexo 5 (Executivo) estão indisponíveis.
+    """
+    desc = (
+        'Verifica os valores de Caixa e Equivalentes de Caixa Bruta por grupos '
+        'de Fontes de Recursos do RGF Anexo 5 do Executivo contra a MSC de dezembro '
+        '(escopo restrito ao Poder Executivo)'
+    )
+    obs_base = (
+        'RGF Anexo 5 (Executivo): cod_conta DisponibilidadeDeCaixaBruta, linhas '
+        'detalhadas (sem TOTAL (I)/(II)/(III) e subtotais). MSC dezembro '
+        '(ending_balance): conta_contabil 11111/11121/11131; poder_orgao '
+        'apenas Executivo (Direta+Indireta) — Estados 10111/10112, DF 10121/10122, '
+        'Municípios 10131/10132; fonte_recursos pelos 3 últimos dígitos (mapa STN).'
+    )
+
+    msc_need = {'tipo_valor', 'conta_contabil', 'fonte_recursos', 'valor', 'poder_orgao'}
+    rgf_need = {'cod_conta', 'conta', 'valor'}
+
+    def _df_ok(df, need):
+        return (
+            df is not None
+            and isinstance(df, pd.DataFrame)
+            and not df.empty
+            and need.issubset(df.columns)
+        )
+
+    if not _df_ok(msc_dez, msc_need):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00026',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': (
+                'MSC de dezembro indisponível ou sem colunas necessárias '
+                '(tipo_valor, conta_contabil, fonte_recursos, poder_orgao, valor)'
+            ),
+        }]), pd.DataFrame()
+
+    if not _df_ok(df_rgf_5e, rgf_need):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00026',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RGF Anexo 5 (Executivo) indisponível ou incompleto (cod_conta, conta, valor)',
+        }]), pd.DataFrame()
+
+    # ── MSC: ending_balance + conta_contabil 11111/11121/11131 + PO Executivo
+    # Cobre os três tipos de ente (Estado, DF, Município) com Direta+Indireta;
+    # demais poderes/órgãos (TC, RPPS, Legislativo, Judiciário, MP, Defensoria)
+    # ficam fora desta verificação por decisão metodológica do projeto.
+    po_executivo = {
+        '10111', '10112',  # Estados — Direta + Indireta
+        '10121', '10122',  # DF      — Direta + Indireta
+        '10131', '10132',  # Municípios — Direta + Indireta
+    }
+    msc = msc_dez.loc[msc_dez['tipo_valor'].astype(str).eq('ending_balance')].copy()
+    cc = msc['conta_contabil'].astype(str).str.strip()
+    msc = msc.loc[
+        cc.str.startswith('11111')
+        | cc.str.startswith('11121')
+        | cc.str.startswith('11131')
+    ].copy()
+    po_norm = (
+        msc['poder_orgao'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+    )
+    msc = msc.loc[po_norm.isin(po_executivo)].copy()
+
+    # FR (3 últimos dígitos do código de 4 dígitos da fonte na MSC)
+    fr4 = _d3_00029_fonte_codigo_4d(msc['fonte_recursos'])
+    msc['_fr3'] = fr4.str[-3:]
+    msc['_grupo'] = msc['_fr3'].map(_D3_00026_FR_GRUPO)
+    msc['_valor'] = pd.to_numeric(msc['valor'], errors='coerce').fillna(0)
+    msc['_po'] = (
+        msc['poder_orgao'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+    )
+
+    msc_por_grupo = (
+        msc.loc[msc['_grupo'].notna()]
+        .groupby('_grupo', dropna=False)['_valor']
+        .sum()
+    )
+
+    # Quebra MSC por (grupo, poder_orgao) — usada para diagnóstico de divergências
+    msc_por_grupo_po = (
+        msc.loc[msc['_grupo'].notna()]
+        .groupby(['_grupo', '_po'], dropna=False)['_valor']
+        .sum()
+    )
+
+    # Saldos em FR não mapeada — só diagnóstico (não compõem o critério)
+    msc_nao_mapeada = float(msc.loc[msc['_grupo'].isna(), '_valor'].sum())
+    fr_nao_mapeadas = sorted(
+        msc.loc[msc['_grupo'].isna() & (msc['_valor'] != 0), '_fr3']
+        .dropna().unique().tolist()
+    )
+
+    # ── RGF Anexo 5 (Executivo): DisponibilidadeDeCaixaBruta + linhas detalhadas
+    rgf = df_rgf_5e.copy()
+    cod_norm = rgf['cod_conta'].astype(str).str.strip()
+    conta_norm = (
+        rgf['conta'].astype(str).str.strip().str.replace(r'\s+', ' ', regex=True)
+    )
+    rgf = rgf.assign(_cod=cod_norm, _conta=conta_norm)
+    rgf = rgf.loc[rgf['_cod'].eq('DisponibilidadeDeCaixaBruta')]
+    rgf['_grupo'] = rgf['_conta'].map(_D3_00026_RGF_LABEL_GRUPO)
+    rgf['_valor'] = pd.to_numeric(rgf['valor'], errors='coerce').fillna(0)
+
+    rgf_detalhado = rgf.loc[rgf['_grupo'].notna()]
+    rgf_por_grupo = rgf_detalhado.groupby('_grupo', dropna=False)['_valor'].sum()
+
+    # Sem nada comparável dos dois lados → N/A
+    if rgf_detalhado.empty and msc_por_grupo.empty:
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00026',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': (
+                'Sem linhas comparáveis: RGF Anexo 5 sem cod_conta DisponibilidadeDeCaixaBruta detalhado '
+                'e MSC sem saldos em 11111/11121/11131 nas fontes mapeadas'
+            ),
+        }]), pd.DataFrame()
+
+    # Comparação grupo a grupo (união dos grupos presentes em qualquer dos dois lados)
+    grupos = sorted(set(msc_por_grupo.index) | set(rgf_por_grupo.index))
+    linhas = []
+    erro_grupos = []
+    tolerancia = 0.01
+    for g in grupos:
+        v_msc = float(msc_por_grupo.get(g, 0.0))
+        v_rgf = float(rgf_por_grupo.get(g, 0.0))
+        dif = round(v_msc - v_rgf, 2)
+        linhas.append({
+            'Grupo de FR (STN)': g,
+            'MSC dez (Caixa Bruta)': v_msc,
+            'RGF Anexo 5 (DisponibilidadeDeCaixaBruta)': v_rgf,
+            'Diferença (MSC − RGF)': dif,
+        })
+        # Diagnóstico: para grupos divergentes, abrir a quebra MSC por poder_orgao,
+        # facilitando identificar qual PO está sobrando frente ao RGF (ex.: estatal
+        # dependente, autarquia ou fundo especial não consolidado no Anexo 5).
+        if not np.isclose(v_msc, v_rgf, atol=tolerancia, rtol=0.0):
+            erro_grupos.append(g)
+            try:
+                detalhe_po = msc_por_grupo_po.loc[g].sort_values(ascending=False)
+            except (KeyError, ValueError):
+                detalhe_po = pd.Series(dtype=float)
+            for po, v_po in detalhe_po.items():
+                if abs(float(v_po)) < tolerancia:
+                    continue
+                po_label = _D3_00026_PO_LABEL.get(str(po), 'Outro PO')
+                linhas.append({
+                    'Grupo de FR (STN)': f'   ↳ MSC PO {po} — {po_label}',
+                    'MSC dez (Caixa Bruta)': float(v_po),
+                    'RGF Anexo 5 (DisponibilidadeDeCaixaBruta)': None,
+                    'Diferença (MSC − RGF)': None,
+                })
+
+    if msc_nao_mapeada or fr_nao_mapeadas:
+        linhas.append({
+            'Grupo de FR (STN)': 'NÃO MAPEADA (apenas diagnóstico — não compõe critério)',
+            'MSC dez (Caixa Bruta)': msc_nao_mapeada,
+            'RGF Anexo 5 (DisponibilidadeDeCaixaBruta)': 0.0,
+            'Diferença (MSC − RGF)': round(msc_nao_mapeada, 2),
+        })
+
+    d3_00026_t = pd.DataFrame(linhas)
+
+    if erro_grupos:
+        resposta = 'ERRO'
+        nota = 0.00
+    else:
+        resposta = 'OK'
+        nota = 1.00
+
+    obs_out = obs_base
+    if fr_nao_mapeadas:
+        obs_out = (
+            obs_out
+            + ' Saldo MSC em fonte(s) não mapeada(s): '
+            + ', '.join(fr_nao_mapeadas)
+            + ' (não compõem o critério OK/ERRO).'
+        )
+
+    d3_00026 = pd.DataFrame([{
+        'Dimensão': 'D3_00026',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': obs_out,
+    }])
+    return d3_00026, d3_00026_t
+
+
+def d3_00027(df_rreo_1, df_rreo_6):
+    """
+    Igualdade entre Anexos 1 e 6 do RREO para dotação atualizada, despesas empenhadas e liquidadas.
+    Anexo 1: TotalDespesas nas colunas do Balanço Orçamentário; Anexo 6: soma das rubricas indicadas.
+    """
+    desc = (
+        'Verifica a igualdade entre Anexos 1 e 6 do RREO (dotação atualizada, despesas empenhadas e liquidadas)'
+    )
+    if (
+        df_rreo_1 is None
+        or not isinstance(df_rreo_1, pd.DataFrame)
+        or df_rreo_1.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_1.columns)
+        or df_rreo_6 is None
+        or not isinstance(df_rreo_6, pd.DataFrame)
+        or df_rreo_6.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_6.columns)
+    ):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00027',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 1 e/ou Anexo 6 indisponíveis ou incompletos',
+        }]), pd.DataFrame()
+
+    pares = (
+        ('dotacao_atualizada', 'Dotação atualizada', 'DOTAÇÃO ATUALIZADA (e)', 'DOTAÇÃO ATUALIZADA'),
+        ('despesas_empenhadas', 'Despesas empenhadas até o bimestre', 'DESPESAS EMPENHADAS ATÉ O BIMESTRE (f)', 'DESPESAS EMPENHADAS'),
+        ('despesas_liquidadas', 'Despesas liquidadas até o bimestre', 'DESPESAS LIQUIDADAS ATÉ O BIMESTRE (h)', 'DESPESAS LIQUIDADAS'),
+    )
+
+    valores_a1 = {}
+    valores_a6 = {}
+    difs = {}
+    for chave, rotulo, col_a1, col_a6 in pares:
+        s1 = df_rreo_1.loc[
+            (df_rreo_1['coluna'] == col_a1) & (df_rreo_1['cod_conta'] == 'TotalDespesas'),
+            'valor',
+        ]
+        s6 = df_rreo_6.loc[
+            (df_rreo_6['coluna'] == col_a6) & (df_rreo_6['cod_conta'].isin(_D3_00027_RREO6_DESP)),
+            'valor',
+        ]
+        if s1.empty or s6.empty:
+            return pd.DataFrame([{
+                'Dimensão': 'D3_00027',
+                'Resposta': 'N/A',
+                'Descrição da Dimensão': desc,
+                'Nota': None,
+                'OBS': f'Linhas ausentes no RREO para: {rotulo}',
+            }]), pd.DataFrame()
+        valores_a1[chave] = float(s1.sum())
+        valores_a6[chave] = float(s6.sum())
+        difs[chave] = valores_a6[chave] - valores_a1[chave]
+
+    d3_00027_t = pd.DataFrame([
+        {
+            'anexo': 'RREO — Anexo 1',
+            'dotacao_atualizada': valores_a1['dotacao_atualizada'],
+            'despesas_empenhadas': valores_a1['despesas_empenhadas'],
+            'despesas_liquidadas': valores_a1['despesas_liquidadas'],
+        },
+        {
+            'anexo': 'RREO — Anexo 6',
+            'dotacao_atualizada': valores_a6['dotacao_atualizada'],
+            'despesas_empenhadas': valores_a6['despesas_empenhadas'],
+            'despesas_liquidadas': valores_a6['despesas_liquidadas'],
+        },
+        {
+            'anexo': 'Diferença (Anexo 6 − Anexo 1)',
+            'dotacao_atualizada': difs['dotacao_atualizada'],
+            'despesas_empenhadas': difs['despesas_empenhadas'],
+            'despesas_liquidadas': difs['despesas_liquidadas'],
+        },
+    ])
+
+    tolerancia = 0.01
+    condicao = [
+        not np.isclose(difs['dotacao_atualizada'], 0.0, atol=tolerancia, rtol=0.0),
+        not np.isclose(difs['despesas_empenhadas'], 0.0, atol=tolerancia, rtol=0.0),
+        not np.isclose(difs['despesas_liquidadas'], 0.0, atol=tolerancia, rtol=0.0),
+    ]
+    if any(condicao):
+        resposta = 'ERRO'
+        nota = 0.00
+    else:
+        resposta = 'OK'
+        nota = 1.00
+
+    d3_00027 = pd.DataFrame([{
+        'Dimensão': 'D3_00027',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': 'Anexos 1 e 6 do RREO',
+    }])
+    return d3_00027, d3_00027_t
+
+
+def d3_00028(df_rreo_1, df_rreo_6):
+    """
+    Igualdade entre Anexos 1 e 6 do RREO para receitas realizadas e previsão atualizada.
+    """
+    desc = (
+        'Verifica a igualdade entre Anexos 1 e 6 do RREO (receitas realizadas e previsão atualizada)'
+    )
+    if (
+        df_rreo_1 is None
+        or not isinstance(df_rreo_1, pd.DataFrame)
+        or df_rreo_1.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_1.columns)
+        or df_rreo_6 is None
+        or not isinstance(df_rreo_6, pd.DataFrame)
+        or df_rreo_6.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_6.columns)
+    ):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00028',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 1 e/ou Anexo 6 indisponíveis ou incompletos',
+        }]), pd.DataFrame()
+
+    pares = (
+        ('receita_realizada', 'Receita realizada até o bimestre', 'Até o Bimestre (c)', 'RECEITAS REALIZADAS (a)'),
+        ('previsao_atualizada', 'Previsão atualizada', 'PREVISÃO ATUALIZADA (a)', 'PREVISÃO ATUALIZADA'),
+    )
+
+    valores_a1 = {}
+    valores_a6 = {}
+    difs = {}
+    for chave, rotulo, col_a1, col_a6 in pares:
+        s1 = df_rreo_1.loc[
+            (df_rreo_1['coluna'] == col_a1) & (df_rreo_1['cod_conta'] == 'TotalReceitas'),
+            'valor',
+        ]
+        s6 = df_rreo_6.loc[
+            (df_rreo_6['coluna'] == col_a6) & (df_rreo_6['cod_conta'].isin(_D3_00028_RREO6_REC)),
+            'valor',
+        ]
+        if s1.empty or s6.empty:
+            return pd.DataFrame([{
+                'Dimensão': 'D3_00028',
+                'Resposta': 'N/A',
+                'Descrição da Dimensão': desc,
+                'Nota': None,
+                'OBS': f'Linhas ausentes no RREO para: {rotulo}',
+            }]), pd.DataFrame()
+        valores_a1[chave] = float(s1.sum())
+        valores_a6[chave] = float(s6.sum())
+        difs[chave] = valores_a6[chave] - valores_a1[chave]
+
+    d3_00028_t = pd.DataFrame([
+        {
+            'anexo': 'RREO — Anexo 1',
+            'receita_realizada': valores_a1['receita_realizada'],
+            'previsao_atualizada': valores_a1['previsao_atualizada'],
+        },
+        {
+            'anexo': 'RREO — Anexo 6',
+            'receita_realizada': valores_a6['receita_realizada'],
+            'previsao_atualizada': valores_a6['previsao_atualizada'],
+        },
+        {
+            'anexo': 'Diferença (Anexo 6 − Anexo 1)',
+            'receita_realizada': difs['receita_realizada'],
+            'previsao_atualizada': difs['previsao_atualizada'],
+        },
+    ])
+
+    tolerancia = 0.01
+    condicao = [
+        not np.isclose(difs['receita_realizada'], 0.0, atol=tolerancia, rtol=0.0),
+        not np.isclose(difs['previsao_atualizada'], 0.0, atol=tolerancia, rtol=0.0),
+    ]
+    if any(condicao):
+        resposta = 'ERRO'
+        nota = 0.00
+    else:
+        resposta = 'OK'
+        nota = 1.00
+
+    d3_00028 = pd.DataFrame([{
+        'Dimensão': 'D3_00028',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': 'Anexos 1 e 6 do RREO',
+    }])
+    return d3_00028, d3_00028_t
+
+
+def d3_00030(df_rreo_4, df_rreo_6, df_rreo_4_rpps=None):
+    """
+    Igualdade dos totais de receitas previdenciárias: RREO Anexo 4 × Anexo 6.
+
+    A API entrega o Anexo 4 em dois extratos: o anexo 4 geral e o **RREO Anexo 04 - RPPS**
+    (`4_rpps`). Parte das rubricas pode existir só no RPPS;
+    por isso soma-se também `df_rreo_4_rpps` quando informado.
+
+    Filtros fixos (API Siconfi):
+    - Anexo 4 (+ opcional 4_rpps): cod_conta nos totais RPPS (previdenciário, financeiro,
+      administração RPPS, contribuições militares — variantes de grafia na API); coluna PREVISÃO ATUALIZADA (a) e
+      RECEITAS REALIZADAS ATÉ O BIMESTRE (b).
+    - Anexo 6: cod_conta ReceitasPrimarias*/ReceitasNaoPrimarias* ComFontesRPPS;
+      coluna PREVISÃO ATUALIZADA e RECEITAS REALIZADAS (a).
+    """
+    desc = (
+        'Verifica a igualdade entre o total de receitas previdenciárias do RREO Anexo 4 e o Anexo 6'
+    )
+    obs = (
+        'Anexo 4: soma do anexo 4 geral e, quando houver, do extrato Anexo 04 RPPS — '
+        'TotalReceitasRPPS*, TotalDasReceitasDaAdministracaoRPPS, contribuições militares (cod_conta com '
+        'variantes: Militares / Contribuições / Milirares conforme a API); '
+        'Anexo 6: ReceitasPrimariasCorrentesComFontesRPPS e ReceitasNaoPrimariasCorrentesComFontesRPPS.'
+    )
+    need = {'coluna', 'cod_conta', 'valor'}
+
+    cod_a4 = (
+        'TotalReceitasRPPSPrevidenciario',
+        'TotalReceitasRPPSFinanceiro',
+        'TotalDasReceitasDaAdministracaoRPPS', # OBS: não entra os Militares e nem os com Recursos do Tesouro
+    )
+    col_prev_a4 = 'PREVISÃO ATUALIZADA (a)'
+    col_rec_a4 = 'RECEITAS REALIZADAS ATÉ O BIMESTRE (b)'
+
+    cod_a6 = (
+        'ReceitasPrimariasCorrentesComFontesRPPS',
+        'ReceitasNaoPrimariasCorrentesComFontesRPPS',
+        'ReceitasPrimariasDeCapitalComFontesRPPS',
+        'ReceitasNaoPrimariasDeCapitalComFontesRPPS',
+    )
+    col_prev_a6 = 'PREVISÃO ATUALIZADA'
+    col_rec_a6 = 'RECEITAS REALIZADAS (a)'
+
+    def _soma(df, codigos, nome_coluna):
+        if df is None or df.empty or nome_coluna is None:
+            return 0.0
+        m_cc = df['cod_conta'].astype(str).isin(codigos)
+        m_col = df['coluna'].astype(str).str.strip() == str(nome_coluna).strip()
+        vals = df.loc[m_cc & m_col, 'valor']
+        return float(pd.to_numeric(vals, errors='coerce').fillna(0).sum())
+
+    def _df_a4_ok(df):
+        return (
+            df is not None
+            and isinstance(df, pd.DataFrame)
+            and not df.empty
+            and need.issubset(df.columns)
+        )
+
+    if not _df_a4_ok(df_rreo_4) and not _df_a4_ok(df_rreo_4_rpps):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00030',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 4 (e Anexo 4 RPPS, se aplicável) indisponível ou incompleto (coluna, cod_conta, valor)',
+        }]), pd.DataFrame()
+
+    if (
+        df_rreo_6 is None
+        or not isinstance(df_rreo_6, pd.DataFrame)
+        or df_rreo_6.empty
+        or not need.issubset(df_rreo_6.columns)
+    ):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00030',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 6 indisponível ou incompleto (coluna, cod_conta, valor)',
+        }]), pd.DataFrame()
+
+    def _soma_a4(col_nome):
+        s = 0.0
+        if _df_a4_ok(df_rreo_4):
+            s += _soma(df_rreo_4, cod_a4, col_nome)
+        if _df_a4_ok(df_rreo_4_rpps):
+            s += _soma(df_rreo_4_rpps, cod_a4, col_nome)
+        return s
+
+    def _tem_linha(df, codigos, nome_coluna):
+        if not _df_a4_ok(df):
+            return False
+        return bool((
+            df['cod_conta'].astype(str).isin(codigos)
+            & (df['coluna'].astype(str).str.strip() == nome_coluna)
+        ).any())
+
+    a4_disponiveis = (df_rreo_4, df_rreo_4_rpps)
+    linhas_presentes = (
+        any(_tem_linha(df, cod_a4, col_prev_a4) for df in a4_disponiveis)
+        and any(_tem_linha(df, cod_a4, col_rec_a4) for df in a4_disponiveis)
+        and _tem_linha(df_rreo_6, cod_a6, col_prev_a6)
+        and _tem_linha(df_rreo_6, cod_a6, col_rec_a6)
+    )
+    if not linhas_presentes:
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00030',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'Linhas de receitas previdenciárias ausentes nos Anexos 4 e/ou 6 do RREO',
+        }]), pd.DataFrame()
+
+    rv4 = _soma_a4(col_rec_a4)
+    rv6 = _soma(df_rreo_6, cod_a6, col_rec_a6)
+    drv = rv6 - rv4
+
+    pv4 = _soma_a4(col_prev_a4)
+    pv6 = _soma(df_rreo_6, cod_a6, col_prev_a6)
+    dpv = pv6 - pv4
+
+    tolerancia = 0.01
+    condicao_erro = (
+        not np.isclose(drv, 0.0, atol=tolerancia, rtol=0.0)
+        or not np.isclose(dpv, 0.0, atol=tolerancia, rtol=0.0)
+    )
+    resposta = 'ERRO' if condicao_erro else 'OK'
+    nota = 0.00 if condicao_erro else 1.00
+
+    d3_00030_t = pd.DataFrame([
+        {
+            'detalhe': 'Receitas previdenciárias — Anexo 4 + Anexo 4 RPPS (totais RPPS)',
+            'previsao_atualizada': pv4,
+            'receitas_realizadas': rv4,
+        },
+        {
+            'detalhe': 'Receitas previdenciárias — Anexo 6 (ComFontesRPPS)',
+            'previsao_atualizada': pv6,
+            'receitas_realizadas': rv6,
+        },
+        {
+            'detalhe': 'Diferença (Anexo 6 − Anexo 4)',
+            'previsao_atualizada': dpv,
+            'receitas_realizadas': drv,
+        },
+    ])
+
+    d3_00030 = pd.DataFrame([{
+        'Dimensão': 'D3_00030',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': obs,
+    }])
+    return d3_00030, d3_00030_t
+
+
+def d3_00032(df_rreo_1, df_rreo_4, df_rreo_6):
+    """
+    Igualdade de Recursos Arrecadados em Exercícios Anteriores (RPPS):
+    RREO Anexo 1 × Anexo 4 × Anexo 6.
+
+    Filtros por demonstrativo (API Siconfi):
+    - Anexo 1: coluna = 'PREVISÃO ATUALIZADA (a)',
+               cod_conta = 'RecursosArrecadadosEmExerciciosAnteriores'
+    - Anexo 4: coluna = 'PREVISÃO ORÇAMENTÁRIA',
+               cod_conta = 'RecursosRPPSArrecadadosEmExerciciosAnterioresPrevidenciario'
+    - Anexo 6: coluna = 'PREVISÃO ORÇAMENTÁRIA',
+               cod_conta = 'RREO6SaldoDeExerciciosAnteriores'
+
+    Resultado OK se os três valores forem iguais (tolerância de R$ 0,01).
+    """
+    desc = (
+        'Verifica a igualdade de Recursos Arrecadados em Exercícios Anteriores (RPPS) '
+        'entre os Anexos 1, 4 e 6 do RREO'
+    )
+    obs = (
+        'Anexo 1: coluna PREVISÃO ATUALIZADA (a) / cod_conta RecursosArrecadadosEmExerciciosAnteriores; '
+        'Anexo 4: coluna PREVISÃO ORÇAMENTÁRIA / cod_conta '
+        'RecursosRPPSArrecadadosEmExerciciosAnterioresPrevidenciario; '
+        'Anexo 6: coluna PREVISÃO ORÇAMENTÁRIA / cod_conta RecursosArrecadadosEmExerciciosAnteriores.'
+    )
+    need = {'coluna', 'cod_conta', 'valor'}
+
+    def _df_ok(df):
+        return (
+            df is not None
+            and isinstance(df, pd.DataFrame)
+            and not df.empty
+            and need.issubset(df.columns)
+        )
+
+    def _soma(df, cod_conta, nome_coluna):
+        if not _df_ok(df):
+            return None
+        m_cc = df['cod_conta'].astype(str) == str(cod_conta)
+        m_col = df['coluna'].astype(str).str.strip() == str(nome_coluna).strip()
+        vals = df.loc[m_cc & m_col, 'valor']
+        return float(pd.to_numeric(vals, errors='coerce').fillna(0).sum())
+
+    if not _df_ok(df_rreo_1):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00032',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 1 indisponível ou incompleto (coluna, cod_conta, valor)',
+        }]), pd.DataFrame()
+
+    if not _df_ok(df_rreo_4):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00032',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 4 indisponível ou incompleto (coluna, cod_conta, valor)',
+        }]), pd.DataFrame()
+
+    if not _df_ok(df_rreo_6):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00032',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 6 indisponível ou incompleto (coluna, cod_conta, valor)',
+        }]), pd.DataFrame()
+
+    v1 = _soma(df_rreo_1, 'RecursosArrecadadosEmExerciciosAnteriores', 'PREVISÃO ATUALIZADA (a)')
+    v4 = _soma(df_rreo_4, 'RecursosRPPSArrecadadosEmExerciciosAnterioresPrevidenciario', 'PREVISÃO ORÇAMENTÁRIA')
+    v6 = _soma(df_rreo_6, 'RecursosArrecadadosEmExerciciosAnteriores', 'PREVISÃO ORÇAMENTÁRIA')
+
+    linhas_presentes = (
+        (
+            (df_rreo_1['cod_conta'].astype(str) == 'RecursosArrecadadosEmExerciciosAnteriores')
+            & (df_rreo_1['coluna'].astype(str).str.strip() == 'PREVISÃO ATUALIZADA (a)')
+        ).any()
+        and (
+            (df_rreo_4['cod_conta'].astype(str) == 'RecursosRPPSArrecadadosEmExerciciosAnterioresPrevidenciario')
+            & (df_rreo_4['coluna'].astype(str).str.strip() == 'PREVISÃO ORÇAMENTÁRIA')
+        ).any()
+        and (
+            (df_rreo_6['cod_conta'].astype(str) == 'RecursosArrecadadosEmExerciciosAnteriores')
+            & (df_rreo_6['coluna'].astype(str).str.strip() == 'PREVISÃO ORÇAMENTÁRIA')
+        ).any()
+    )
+    if not linhas_presentes:
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00032',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'Linha de Recursos Arrecadados em Exercícios Anteriores ausente em um ou mais anexos',
+        }]), pd.DataFrame()
+
+    tolerancia = 0.01
+    condicao_erro = (
+        not np.isclose(v1, v4, atol=tolerancia, rtol=0.0)
+        or not np.isclose(v1, v6, atol=tolerancia, rtol=0.0)
+        or not np.isclose(v4, v6, atol=tolerancia, rtol=0.0)
+    )
+    resposta = 'ERRO' if condicao_erro else 'OK'
+    nota = 0.00 if condicao_erro else 1.00
+
+    d3_00032_t = pd.DataFrame([
+        {
+            'detalhe': 'Anexo 1 — RecursosArrecadadosEmExerciciosAnteriores (PREVISÃO ATUALIZADA (a))',
+            'valor': v1,
+        },
+        {
+            'detalhe': 'Anexo 4 — RecursosRPPSArrecadadosEmExerciciosAnterioresPrevidenciario (PREVISÃO ORÇAMENTÁRIA)',
+            'valor': v4,
+        },
+        {
+            'detalhe': 'Anexo 6 — RecursosArrecadadosEmExerciciosAnteriores (PREVISÃO ORÇAMENTÁRIA)',
+            'valor': v6,
+        },
+        {
+            'detalhe': 'Diferença Anexo 1 − Anexo 4',
+            'valor': round(v1 - v4, 2),
+        },
+        {
+            'detalhe': 'Diferença Anexo 1 − Anexo 6',
+            'valor': round(v1 - v6, 2),
+        },
+    ])
+
+    d3_00032 = pd.DataFrame([{
+        'Dimensão': 'D3_00032',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': obs,
+    }])
+    return d3_00032, d3_00032_t
+
+
+def d3_00033(df_rreo_1, df_rreo_6):
+    """
+    Superávit financeiro (previsão): RREO Anexo 1 × Anexo 6.
+
+    Anexo 1: coluna PREVISÃO ATUALIZADA (a), cod_conta SuperavitFinanceiro.
+    Anexo 6: coluna PREVISÃO ORÇAMENTÁRIA, cod_conta SuperavitFinanceiro.
+
+    Se a linha não existir nos dois demonstrativos, considera-se OK (coerência na ausência).
+    Se existir só em um dos anexos, ERRO (inconsistência).
+    """
+    desc = (
+        'Verifica a igualdade do superávit financeiro (previsão) entre o RREO Anexo 1 e o Anexo 6'
+    )
+    obs_ok_compare = (
+        'Anexo 1: PREVISÃO ATUALIZADA (a) e SuperavitFinanceiro; '
+        'Anexo 6: PREVISÃO ORÇAMENTÁRIA e SuperavitFinanceiro.'
+    )
+    col_a1 = 'PREVISÃO ATUALIZADA (a)'
+    col_a6 = 'PREVISÃO ORÇAMENTÁRIA'
+    cod = 'SuperavitFinanceiro'
+
+    if (
+        df_rreo_1 is None
+        or not isinstance(df_rreo_1, pd.DataFrame)
+        or df_rreo_1.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_1.columns)
+        or df_rreo_6 is None
+        or not isinstance(df_rreo_6, pd.DataFrame)
+        or df_rreo_6.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_6.columns)
+    ):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00033',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 1 e/ou Anexo 6 indisponíveis ou incompletos',
+        }]), pd.DataFrame()
+
+    m1 = (
+        (df_rreo_1['coluna'].astype(str).str.strip() == col_a1)
+        & (df_rreo_1['cod_conta'].astype(str).str.strip() == cod)
+    )
+    m6 = (
+        (df_rreo_6['coluna'].astype(str).str.strip() == col_a6)
+        & (df_rreo_6['cod_conta'].astype(str).str.strip() == cod)
+    )
+    has1 = bool(m1.any())
+    has6 = bool(m6.any())
+
+    # Ausente nos dois: coerente → OK (metodologia: não pode faltar só em um)
+    if not has1 and not has6:
+        obs_both_absent = (
+            'Superávit financeiro (previsão, SuperavitFinanceiro) ausente em Anexo 1 e Anexo 6 — '
+            'coerente entre os demonstrativos.'
+        )
+        d3_00033_t = pd.DataFrame([
+            {'detalhe': 'Superávit financeiro — RREO Anexo 1', 'valor': 0.0},
+            {'detalhe': 'Superávit financeiro — RREO Anexo 6', 'valor': 0.0},
+            {'detalhe': 'Diferença (Anexo 6 − Anexo 1)', 'valor': 0.0},
+        ])
+        d3_00033 = pd.DataFrame([{
+            'Dimensão': 'D3_00033',
+            'Resposta': 'OK',
+            'Descrição da Dimensão': desc,
+            'Nota': 1.00,
+            'OBS': obs_both_absent,
+        }])
+        return d3_00033, d3_00033_t
+
+    # Presente em apenas um anexo: inconsistente → ERRO
+    if has1 != has6:
+        v1 = float(pd.to_numeric(df_rreo_1.loc[m1, 'valor'], errors='coerce').fillna(0).sum()) if has1 else 0.0
+        v6 = float(pd.to_numeric(df_rreo_6.loc[m6, 'valor'], errors='coerce').fillna(0).sum()) if has6 else 0.0
+        dif = v6 - v1
+        obs_mismatch = (
+            'Inconsistência: linha SuperavitFinanceiro (previsão) presente em apenas um dos anexos '
+            '(Anexo 1 e Anexo 6 devem ambos trazer ou ambos omitir a informação).'
+        )
+        d3_00033_t = pd.DataFrame([
+            {'detalhe': 'Superávit financeiro — RREO Anexo 1', 'valor': v1},
+            {'detalhe': 'Superávit financeiro — RREO Anexo 6', 'valor': v6},
+            {'detalhe': 'Diferença (Anexo 6 − Anexo 1)', 'valor': dif},
+        ])
+        d3_00033 = pd.DataFrame([{
+            'Dimensão': 'D3_00033',
+            'Resposta': 'ERRO',
+            'Descrição da Dimensão': desc,
+            'Nota': 0.00,
+            'OBS': obs_mismatch,
+        }])
+        return d3_00033, d3_00033_t
+
+    v1 = float(pd.to_numeric(df_rreo_1.loc[m1, 'valor'], errors='coerce').fillna(0).sum())
+    v6 = float(pd.to_numeric(df_rreo_6.loc[m6, 'valor'], errors='coerce').fillna(0).sum())
+    dif = v6 - v1
+
+    tolerancia = 0.01
+    condicao_erro = not np.isclose(dif, 0.0, atol=tolerancia, rtol=0.0)
+    resposta = 'ERRO' if condicao_erro else 'OK'
+    nota = 0.00 if condicao_erro else 1.00
+
+    d3_00033_t = pd.DataFrame([
+        {'detalhe': 'Superávit financeiro — RREO Anexo 1', 'valor': v1},
+        {'detalhe': 'Superávit financeiro — RREO Anexo 6', 'valor': v6},
+        {'detalhe': 'Diferença (Anexo 6 − Anexo 1)', 'valor': dif},
+    ])
+
+    d3_00033 = pd.DataFrame([{
+        'Dimensão': 'D3_00033',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': obs_ok_compare,
+    }])
+    return d3_00033, d3_00033_t
+
+
+def d3_00034(df_rreo_1, df_rreo_4, df_rreo_6):
+    """
+    Igualdade da Reserva Orçamentária do RPPS (Previdenciário):
+    RREO Anexo 1 × Anexo 4 × Anexo 6.
+
+    Filtros por demonstrativo (API Siconfi):
+    - Anexo 1: coluna = 'DOTAÇÃO ATUALIZADA (e)',
+               cod_conta = 'ReservaDoRPPS'
+    - Anexo 4: coluna = 'PREVISÃO ORÇAMENTÁRIA',
+               cod_conta = 'ReservaOrcamentariaDoRPPSPrevidenciario'
+    - Anexo 6: coluna = 'PREVISÃO ORÇAMENTÁRIA',
+               cod_conta = 'ReservaOrcamentariaDoRPPSPrevidenciario'
+
+    Resultado OK se os três valores forem iguais (tolerância de R$ 0,01).
+    """
+    desc = (
+        'Verifica a igualdade da Reserva Orçamentária do RPPS (Previdenciário) '
+        'entre os Anexos 1, 4 e 6 do RREO'
+    )
+    obs = (
+        'Anexo 1: coluna DOTAÇÃO ATUALIZADA (e) / cod_conta ReservaDoRPPS; '
+        'Anexo 4: coluna PREVISÃO ORÇAMENTÁRIA / cod_conta ReservaOrcamentariaDoRPPSPrevidenciario; '
+        'Anexo 6: coluna PREVISÃO ORÇAMENTÁRIA / cod_conta ReservaOrcamentariaDoRPPSPrevidenciario.'
+    )
+    need = {'coluna', 'cod_conta', 'valor'}
+
+    def _df_ok(df):
+        return (
+            df is not None
+            and isinstance(df, pd.DataFrame)
+            and not df.empty
+            and need.issubset(df.columns)
+        )
+
+    def _soma(df, cod_conta, nome_coluna):
+        if not _df_ok(df):
+            return None
+        m_cc = df['cod_conta'].astype(str) == str(cod_conta)
+        m_col = df['coluna'].astype(str).str.strip() == str(nome_coluna).strip()
+        vals = df.loc[m_cc & m_col, 'valor']
+        return float(pd.to_numeric(vals, errors='coerce').fillna(0).sum())
+
+    if not _df_ok(df_rreo_1):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00034',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 1 indisponível ou incompleto (coluna, cod_conta, valor)',
+        }]), pd.DataFrame()
+
+    if not _df_ok(df_rreo_4):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00034',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 4 indisponível ou incompleto (coluna, cod_conta, valor)',
+        }]), pd.DataFrame()
+
+    if not _df_ok(df_rreo_6):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00034',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 6 indisponível ou incompleto (coluna, cod_conta, valor)',
+        }]), pd.DataFrame()
+
+    v1 = _soma(df_rreo_1, 'ReservaDoRPPS', 'DOTAÇÃO ATUALIZADA (e)')
+    v4 = _soma(df_rreo_4, 'ReservaOrcamentariaDoRPPSPrevidenciario', 'PREVISÃO ORÇAMENTÁRIA')
+    v6 = _soma(df_rreo_6, 'ReservaOrcamentariaDoRPPSPrevidenciario', 'PREVISÃO ORÇAMENTÁRIA')
+
+    linhas_presentes = (
+        (
+            (df_rreo_1['cod_conta'].astype(str) == 'ReservaDoRPPS')
+            & (df_rreo_1['coluna'].astype(str).str.strip() == 'DOTAÇÃO ATUALIZADA (e)')
+        ).any()
+        and (
+            (df_rreo_4['cod_conta'].astype(str) == 'ReservaOrcamentariaDoRPPSPrevidenciario')
+            & (df_rreo_4['coluna'].astype(str).str.strip() == 'PREVISÃO ORÇAMENTÁRIA')
+        ).any()
+        and (
+            (df_rreo_6['cod_conta'].astype(str) == 'ReservaOrcamentariaDoRPPSPrevidenciario')
+            & (df_rreo_6['coluna'].astype(str).str.strip() == 'PREVISÃO ORÇAMENTÁRIA')
+        ).any()
+    )
+    if not linhas_presentes:
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00034',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'Linha da Reserva Orçamentária do RPPS ausente em um ou mais anexos',
+        }]), pd.DataFrame()
+
+    tolerancia = 0.01
+    condicao_erro = (
+        not np.isclose(v1, v4, atol=tolerancia, rtol=0.0)
+        or not np.isclose(v1, v6, atol=tolerancia, rtol=0.0)
+        or not np.isclose(v4, v6, atol=tolerancia, rtol=0.0)
+    )
+    resposta = 'ERRO' if condicao_erro else 'OK'
+    nota = 0.00 if condicao_erro else 1.00
+
+    d3_00034_t = pd.DataFrame([
+        {
+            'detalhe': 'Anexo 1 — ReservaDoRPPS (DOTAÇÃO ATUALIZADA (e))',
+            'valor': v1,
+        },
+        {
+            'detalhe': 'Anexo 4 — ReservaOrcamentariaDoRPPSPrevidenciario (PREVISÃO ORÇAMENTÁRIA)',
+            'valor': v4,
+        },
+        {
+            'detalhe': 'Anexo 6 — ReservaOrcamentariaDoRPPSPrevidenciario (PREVISÃO ORÇAMENTÁRIA)',
+            'valor': v6,
+        },
+        {
+            'detalhe': 'Diferença (Anexo 1 − Anexo 4)',
+            'valor': round(v1 - v4, 2),
+        },
+        {
+            'detalhe': 'Diferença (Anexo 1 − Anexo 6)',
+            'valor': round(v1 - v6, 2),
+        },
+    ])
+
+    d3_00034 = pd.DataFrame([{
+        'Dimensão': 'D3_00034',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': obs,
+    }])
+    return d3_00034, d3_00034_t
+
+
+def d3_00035(df_rreo_1, df_rreo_6):
+    """
+    Reserva de contingência (dotação atualizada): RREO Anexo 1 × Anexo 6.
+
+    Anexo 1: coluna DOTAÇÃO ATUALIZADA (e), cod_conta ReservaDeContingencia.
+    Anexo 6: coluna DOTAÇÃO ATUALIZADA, cod_conta RREO6ReservaDeContingencia.
+    """
+    desc = (
+        'Verifica a igualdade da reserva de contingência (dotação atualizada) entre o RREO Anexo 1 e o Anexo 6'
+    )
+    obs = (
+        'Anexo 1: DOTAÇÃO ATUALIZADA (e) e ReservaDeContingencia; '
+        'Anexo 6: DOTAÇÃO ATUALIZADA e RREO6ReservaDeContingencia.'
+    )
+    col_a1 = 'DOTAÇÃO ATUALIZADA (e)'
+    col_a6 = 'DOTAÇÃO ATUALIZADA'
+    cod_a1 = 'ReservaDeContingencia'
+    cod_a6 = 'RREO6ReservaDeContingencia'
+
+    if (
+        df_rreo_1 is None
+        or not isinstance(df_rreo_1, pd.DataFrame)
+        or df_rreo_1.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_1.columns)
+        or df_rreo_6 is None
+        or not isinstance(df_rreo_6, pd.DataFrame)
+        or df_rreo_6.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_6.columns)
+    ):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00035',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 1 e/ou Anexo 6 indisponíveis ou incompletos',
+        }]), pd.DataFrame()
+
+    m1 = (
+        (df_rreo_1['coluna'].astype(str).str.strip() == col_a1)
+        & (df_rreo_1['cod_conta'].astype(str).str.strip() == cod_a1)
+    )
+    m6 = (
+        (df_rreo_6['coluna'].astype(str).str.strip() == col_a6)
+        & (df_rreo_6['cod_conta'].astype(str).str.strip() == cod_a6)
+    )
+
+    v1 = float(pd.to_numeric(df_rreo_1.loc[m1, 'valor'], errors='coerce').fillna(0).sum())
+    v6 = float(pd.to_numeric(df_rreo_6.loc[m6, 'valor'], errors='coerce').fillna(0).sum())
+    dif = v6 - v1
+
+    tolerancia = 0.01
+    condicao_erro = not np.isclose(dif, 0.0, atol=tolerancia, rtol=0.0)
+    resposta = 'ERRO' if condicao_erro else 'OK'
+    nota = 0.00 if condicao_erro else 1.00
+
+    ausencias = []
+    if not m1.any():
+        ausencias.append(f'Anexo 1 sem linha "{col_a1}" + {cod_a1}')
+    if not m6.any():
+        ausencias.append(f'Anexo 6 sem linha "{col_a6}" + {cod_a6}')
+    obs_out = obs
+    if ausencias:
+        obs_out = obs + ' Ausências parciais tratadas como zero: ' + '; '.join(ausencias) + '.'
+
+    d3_00035_t = pd.DataFrame([
+        {'detalhe': 'Reserva de contingência — RREO Anexo 1', 'valor': v1},
+        {'detalhe': 'Reserva de contingência — RREO Anexo 6', 'valor': v6},
+        {'detalhe': 'Diferença (Anexo 6 − Anexo 1)', 'valor': dif},
+    ])
+
+    d3_00035 = pd.DataFrame([{
+        'Dimensão': 'D3_00035',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': obs_out,
+    }])
+    return d3_00035, d3_00035_t
+
+
+def d3_00037(df_rreo_1, df_rreo_9):
+    """
+    Igualdade de investimentos (intra + exceto intra): RREO Anexo 1 × Anexo 9.
+
+    Anexo 1: soma Investimentos + InvestimentosIntra (e variantes); colunas
+    DOTAÇÃO ATUALIZADA (e) e DESPESAS EMPENHADAS ATÉ O BIMESTRE (f).
+    Anexo 9: apenas cod_conta Investimentos; colunas DOTAÇÃO ATUALIZADA (d) e
+    DESPESAS EMPENHADAS (e).
+    """
+    desc = (
+        'Verifica a igualdade de Investimentos (intra + exceto intra) entre o Anexo 1 e o Anexo 9 do RREO'
+    )
+    obs = (
+        'Anexo 1: soma de Investimentos e InvestimentosIntra em DOTAÇÃO ATUALIZADA (e) e '
+        'DESPESAS EMPENHADAS ATÉ O BIMESTRE (f); '
+        'Anexo 9: apenas Investimentos em DOTAÇÃO ATUALIZADA (d) e DESPESAS EMPENHADAS (e).'
+    )
+
+    cods_conta_rreo1 = ('Investimentos', 'InvestimentosIntra')
+    cod_a9 = 'Investimentos'
+    col_dot_a1 = 'DOTAÇÃO ATUALIZADA (e)'
+    col_emp_a1 = 'DESPESAS EMPENHADAS ATÉ O BIMESTRE (f)'
+    col_dot_a9 = 'DOTAÇÃO ATUALIZADA (d)'
+    col_emp_a9 = 'DESPESAS EMPENHADAS (e)'
+
+    if (
+        df_rreo_1 is None
+        or not isinstance(df_rreo_1, pd.DataFrame)
+        or df_rreo_1.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_1.columns)
+        or df_rreo_9 is None
+        or not isinstance(df_rreo_9, pd.DataFrame)
+        or df_rreo_9.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_9.columns)
+    ):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00037',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 1 e/ou Anexo 9 indisponíveis ou incompletos',
+        }]), pd.DataFrame()
+
+    cc1 = df_rreo_1['cod_conta'].astype(str).str.strip()
+    m_cc_a1 = cc1.isin(cods_conta_rreo1) | cc1.str.startswith(
+        'InvestimentosIntra', na=False
+    )
+    m_dot_a1 = m_cc_a1 & (df_rreo_1['coluna'].astype(str).str.strip() == col_dot_a1)
+    m_emp_a1 = m_cc_a1 & (df_rreo_1['coluna'].astype(str).str.strip() == col_emp_a1)
+    cc9 = df_rreo_9['cod_conta'].astype(str).str.strip()
+    m_dot_a9 = (cc9 == cod_a9) & (df_rreo_9['coluna'].astype(str).str.strip() == col_dot_a9)
+    m_emp_a9 = (cc9 == cod_a9) & (df_rreo_9['coluna'].astype(str).str.strip() == col_emp_a9)
+
+    if not (m_dot_a1.any() and m_emp_a1.any() and m_dot_a9.any() and m_emp_a9.any()):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00037',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': (
+                'Linha ausente: A1 exige ao menos um dos cod_conta (soma: Investimentos + InvestimentosIntra) em '
+                '"DOTAÇÃO ATUALIZADA (e)" e "DESPESAS EMPENHADAS ATÉ O BIMESTRE (f)"; '
+                'A9 exige Investimentos em "DOTAÇÃO ATUALIZADA (d)" e "DESPESAS EMPENHADAS (e)"'
+            ),
+        }]), pd.DataFrame()
+
+    dot_a1 = float(pd.to_numeric(df_rreo_1.loc[m_dot_a1, 'valor'], errors='coerce').fillna(0).sum())
+    emp_a1 = float(pd.to_numeric(df_rreo_1.loc[m_emp_a1, 'valor'], errors='coerce').fillna(0).sum())
+    dot_a9 = float(pd.to_numeric(df_rreo_9.loc[m_dot_a9, 'valor'], errors='coerce').fillna(0).sum())
+    emp_a9 = float(pd.to_numeric(df_rreo_9.loc[m_emp_a9, 'valor'], errors='coerce').fillna(0).sum())
+
+    dif_dot = dot_a9 - dot_a1
+    dif_emp = emp_a9 - emp_a1
+
+    tolerancia = 0.01
+    condicao_erro = (
+        not np.isclose(dif_dot, 0.0, atol=tolerancia, rtol=0.0)
+        or not np.isclose(dif_emp, 0.0, atol=tolerancia, rtol=0.0)
+    )
+    resposta = 'ERRO' if condicao_erro else 'OK'
+    nota = 0.00 if condicao_erro else 1.00
+
+    d3_00037_t = pd.DataFrame([
+        {
+            'detalhe': 'Investimentos — RREO Anexo 1',
+            'dotacao_atualizada': dot_a1,
+            'despesas_empenhadas': emp_a1,
+        },
+        {
+            'detalhe': 'Investimentos — RREO Anexo 9',
+            'dotacao_atualizada': dot_a9,
+            'despesas_empenhadas': emp_a9,
+        },
+        {
+            'detalhe': 'Diferença (Anexo 9 − Anexo 1)',
+            'dotacao_atualizada': dif_dot,
+            'despesas_empenhadas': dif_emp,
+        },
+    ])
+
+    d3_00037 = pd.DataFrame([{
+        'Dimensão': 'D3_00037',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': obs,
+    }])
+    return d3_00037, d3_00037_t
+
+
+def d3_00038(df_rreo_1, df_rreo_9):
+    """
+    Igualdade de inversões financeiras (intra + exceto intra): RREO Anexo 1 × Anexo 9.
+
+    Anexo 1: soma InversoesFinanceiras + InversoesFinanceirasIntra (e variantes); colunas
+    DOTAÇÃO ATUALIZADA (e) e DESPESAS EMPENHADAS ATÉ O BIMESTRE (f).
+    Anexo 9: apenas cod_conta InversoesFinanceiras; colunas DOTAÇÃO ATUALIZADA (d) e
+    DESPESAS EMPENHADAS (e).
+    """
+    desc = (
+        'Verifica a igualdade de Inversões Financeiras (intra + exceto intra) entre o Anexo 1 e o Anexo 9 do RREO'
+    )
+    obs = (
+        'Anexo 1: soma de InversoesFinanceiras e InversoesFinanceirasIntra em DOTAÇÃO ATUALIZADA (e) e '
+        'DESPESAS EMPENHADAS ATÉ O BIMESTRE (f); '
+        'Anexo 9: apenas InversoesFinanceiras em DOTAÇÃO ATUALIZADA (d) e DESPESAS EMPENHADAS (e).'
+    )
+
+    cods_conta_rreo1 = ('InversoesFinanceiras', 'InversoesFinanceirasIntra')
+    cod_a9 = 'InversoesFinanceiras'
+    col_dot_a1 = 'DOTAÇÃO ATUALIZADA (e)'
+    col_emp_a1 = 'DESPESAS EMPENHADAS ATÉ O BIMESTRE (f)'
+    col_dot_a9 = 'DOTAÇÃO ATUALIZADA (d)'
+    col_emp_a9 = 'DESPESAS EMPENHADAS (e)'
+
+    if (
+        df_rreo_1 is None
+        or not isinstance(df_rreo_1, pd.DataFrame)
+        or df_rreo_1.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_1.columns)
+        or df_rreo_9 is None
+        or not isinstance(df_rreo_9, pd.DataFrame)
+        or df_rreo_9.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_9.columns)
+    ):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00038',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 1 e/ou Anexo 9 indisponíveis ou incompletos',
+        }]), pd.DataFrame()
+
+    cc1 = df_rreo_1['cod_conta'].astype(str).str.strip()
+    m_cc_a1 = cc1.isin(cods_conta_rreo1) | cc1.str.startswith(
+        'InversoesFinanceirasIntra', na=False
+    )
+    m_dot_a1 = m_cc_a1 & (df_rreo_1['coluna'].astype(str).str.strip() == col_dot_a1)
+    m_emp_a1 = m_cc_a1 & (df_rreo_1['coluna'].astype(str).str.strip() == col_emp_a1)
+    cc9 = df_rreo_9['cod_conta'].astype(str).str.strip()
+    m_dot_a9 = (cc9 == cod_a9) & (df_rreo_9['coluna'].astype(str).str.strip() == col_dot_a9)
+    m_emp_a9 = (cc9 == cod_a9) & (df_rreo_9['coluna'].astype(str).str.strip() == col_emp_a9)
+
+    if not (m_dot_a1.any() and m_emp_a1.any() and m_dot_a9.any() and m_emp_a9.any()):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00038',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': (
+                'Linha ausente: A1 exige ao menos um dos cod_conta (soma: InversoesFinanceiras + '
+                'InversoesFinanceirasIntra) em "DOTAÇÃO ATUALIZADA (e)" e "DESPESAS EMPENHADAS ATÉ O BIMESTRE (f)"; '
+                'A9 exige InversoesFinanceiras em "DOTAÇÃO ATUALIZADA (d)" e "DESPESAS EMPENHADAS (e)"'
+            ),
+        }]), pd.DataFrame()
+
+    dot_a1 = float(pd.to_numeric(df_rreo_1.loc[m_dot_a1, 'valor'], errors='coerce').fillna(0).sum())
+    emp_a1 = float(pd.to_numeric(df_rreo_1.loc[m_emp_a1, 'valor'], errors='coerce').fillna(0).sum())
+    dot_a9 = float(pd.to_numeric(df_rreo_9.loc[m_dot_a9, 'valor'], errors='coerce').fillna(0).sum())
+    emp_a9 = float(pd.to_numeric(df_rreo_9.loc[m_emp_a9, 'valor'], errors='coerce').fillna(0).sum())
+
+    dif_dot = dot_a9 - dot_a1
+    dif_emp = emp_a9 - emp_a1
+
+    tolerancia = 0.01
+    condicao_erro = (
+        not np.isclose(dif_dot, 0.0, atol=tolerancia, rtol=0.0)
+        or not np.isclose(dif_emp, 0.0, atol=tolerancia, rtol=0.0)
+    )
+    resposta = 'ERRO' if condicao_erro else 'OK'
+    nota = 0.00 if condicao_erro else 1.00
+
+    d3_00038_t = pd.DataFrame([
+        {
+            'detalhe': 'Inversões Financeiras — RREO Anexo 1',
+            'dotacao_atualizada': dot_a1,
+            'despesas_empenhadas': emp_a1,
+        },
+        {
+            'detalhe': 'Inversões Financeiras — RREO Anexo 9',
+            'dotacao_atualizada': dot_a9,
+            'despesas_empenhadas': emp_a9,
+        },
+        {
+            'detalhe': 'Diferença (Anexo 9 − Anexo 1)',
+            'dotacao_atualizada': dif_dot,
+            'despesas_empenhadas': dif_emp,
+        },
+    ])
+
+    d3_00038 = pd.DataFrame([{
+        'Dimensão': 'D3_00038',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': obs,
+    }])
+    return d3_00038, d3_00038_t
+
+
+def d3_00039(df_rreo_1, df_rreo_9):
+    """
+    Igualdade de amortização da dívida (intra + exceto intra): RREO Anexo 1 × Anexo 9.
+
+    Anexo 1: soma dos cod_conta de amortização (ex.: AmortizacaoDaDivida,
+    AmortizacaoRefinanciamentoDaDividaInternaContratual, AmortizacaoDaDividaIntra);
+    colunas DOTAÇÃO ATUALIZADA (e) e DESPESAS EMPENHADAS ATÉ O BIMESTRE (f).
+    Anexo 9: apenas cod_conta AmortizacaoDaDivida; colunas DOTAÇÃO ATUALIZADA (d) e
+    DESPESAS EMPENHADAS (e).
+    """
+    desc = (
+        'Verifica a igualdade de Amortização da Dívida (intra + exceto intra) entre o Anexo 1 e o Anexo 9 do RREO'
+    )
+    obs = (
+        'Anexo 1: soma dos cod_conta de amortização da dívida em DOTAÇÃO ATUALIZADA (e) e '
+        'DESPESAS EMPENHADAS ATÉ O BIMESTRE (f); '
+        'Anexo 9: apenas AmortizacaoDaDivida em DOTAÇÃO ATUALIZADA (d) e DESPESAS EMPENHADAS (e).'
+    )
+
+    # Anexo 1 (estados como RJ): várias linhas de amortização; somar todas.
+    # Anexo 9: permanece consolidado em AmortizacaoDaDivida (ex.: Belém).
+    cods_conta_rreo1 = (
+        'AmortizacaoDaDivida',
+        'AmortizacaoRefinanciamentoDaDividaInternaContratual',
+        'AmortizacaoDaDividaIntra',
+    )
+    cod_a9 = 'AmortizacaoDaDivida'
+    col_dot_a1 = 'DOTAÇÃO ATUALIZADA (e)'
+    col_emp_a1 = 'DESPESAS EMPENHADAS ATÉ O BIMESTRE (f)'
+    col_dot_a9 = 'DOTAÇÃO ATUALIZADA (d)'
+    col_emp_a9 = 'DESPESAS EMPENHADAS (e)'
+
+    if (
+        df_rreo_1 is None
+        or not isinstance(df_rreo_1, pd.DataFrame)
+        or df_rreo_1.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_1.columns)
+        or df_rreo_9 is None
+        or not isinstance(df_rreo_9, pd.DataFrame)
+        or df_rreo_9.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_9.columns)
+    ):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00039',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 1 e/ou Anexo 9 indisponíveis ou incompletos',
+        }]), pd.DataFrame()
+
+    cc1 = df_rreo_1['cod_conta'].astype(str).str.strip()
+    # Inclui variantes de nome (ex.: RJ) além dos três cod_conta explícitos.
+    m_cc_a1 = cc1.isin(cods_conta_rreo1) | cc1.str.startswith(
+        'AmortizacaoDaDividaIntra', na=False
+    )
+    m_dot_a1 = m_cc_a1 & (df_rreo_1['coluna'].astype(str).str.strip() == col_dot_a1)
+    m_emp_a1 = m_cc_a1 & (df_rreo_1['coluna'].astype(str).str.strip() == col_emp_a1)
+    cc9 = df_rreo_9['cod_conta'].astype(str).str.strip()
+    m_dot_a9 = (cc9 == cod_a9) & (df_rreo_9['coluna'].astype(str).str.strip() == col_dot_a9)
+    m_emp_a9 = (cc9 == cod_a9) & (df_rreo_9['coluna'].astype(str).str.strip() == col_emp_a9)
+
+    if not (m_dot_a1.any() and m_emp_a1.any() and m_dot_a9.any() and m_emp_a9.any()):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00039',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': (
+                'Linha ausente: A1 exige ao menos um dos cod_conta de amortização (soma) em '
+                '"DOTAÇÃO ATUALIZADA (e)" e "DESPESAS EMPENHADAS ATÉ O BIMESTRE (f)"; '
+                'A9 exige AmortizacaoDaDivida em "DOTAÇÃO ATUALIZADA (d)" e "DESPESAS EMPENHADAS (e)"'
+            ),
+        }]), pd.DataFrame()
+
+    dot_a1 = float(pd.to_numeric(df_rreo_1.loc[m_dot_a1, 'valor'], errors='coerce').fillna(0).sum())
+    emp_a1 = float(pd.to_numeric(df_rreo_1.loc[m_emp_a1, 'valor'], errors='coerce').fillna(0).sum())
+    dot_a9 = float(pd.to_numeric(df_rreo_9.loc[m_dot_a9, 'valor'], errors='coerce').fillna(0).sum())
+    emp_a9 = float(pd.to_numeric(df_rreo_9.loc[m_emp_a9, 'valor'], errors='coerce').fillna(0).sum())
+
+    dif_dot = dot_a9 - dot_a1
+    dif_emp = emp_a9 - emp_a1
+
+    tolerancia = 0.01
+    condicao_erro = (
+        not np.isclose(dif_dot, 0.0, atol=tolerancia, rtol=0.0)
+        or not np.isclose(dif_emp, 0.0, atol=tolerancia, rtol=0.0)
+    )
+    resposta = 'ERRO' if condicao_erro else 'OK'
+    nota = 0.00 if condicao_erro else 1.00
+
+    d3_00039_t = pd.DataFrame([
+        {
+            'detalhe': 'Amortização da Dívida — RREO Anexo 1',
+            'dotacao_atualizada': dot_a1,
+            'despesas_empenhadas': emp_a1,
+        },
+        {
+            'detalhe': 'Amortização da Dívida — RREO Anexo 9',
+            'dotacao_atualizada': dot_a9,
+            'despesas_empenhadas': emp_a9,
+        },
+        {
+            'detalhe': 'Diferença (Anexo 9 − Anexo 1)',
+            'dotacao_atualizada': dif_dot,
+            'despesas_empenhadas': dif_emp,
+        },
+    ])
+
+    d3_00039 = pd.DataFrame([{
+        'Dimensão': 'D3_00039',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': obs,
+    }])
+    return d3_00039, d3_00039_t
+
+
+def d3_00040(df_rreo_1, df_rreo_9):
+    """
+    Igualdade de receitas de operações de crédito: RREO Anexo 1 × Anexo 9.
+
+    Anexo 1: cod_conta ReceitasDeOperacoesDeCredito; colunas PREVISÃO ATUALIZADA (a)
+    e Até o Bimestre (c).
+    Anexo 9: cod_conta RREO9ReceitasDeOperacoesDeCredito; colunas PREVISÃO ATUALIZADA (a)
+    e RECEITAS REALIZADAS (b).
+
+    Se **não** existir nenhuma dessas linhas nos **dois** anexos, o ente não tem esse tipo
+    de receita a cruzar → **OK**. Só um anexo com linhas e o outro sem → **ERRO**.
+    """
+    desc = (
+        'Verifica a igualdade de Receitas de Operações de Crédito entre o Anexo 1 e o Anexo 9 do RREO'
+    )
+    obs = (
+        'Anexo 1: ReceitasDeOperacoesDeCredito em PREVISÃO ATUALIZADA (a) e Até o Bimestre (c); '
+        'Anexo 9: RREO9ReceitasDeOperacoesDeCredito em PREVISÃO ATUALIZADA (a) e RECEITAS REALIZADAS (b).'
+    )
+
+    cod_a1 = 'ReceitasDeOperacoesDeCredito'
+    cod_a9 = 'RREO9ReceitasDeOperacoesDeCredito'
+    col_prev_a1 = 'PREVISÃO ATUALIZADA (a)'
+    col_rec_a1 = 'Até o Bimestre (c)'
+    col_prev_a9 = 'PREVISÃO ATUALIZADA (a)'
+    col_rec_a9 = 'RECEITAS REALIZADAS (b)'
+
+    if (
+        df_rreo_1 is None
+        or not isinstance(df_rreo_1, pd.DataFrame)
+        or df_rreo_1.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_1.columns)
+        or df_rreo_9 is None
+        or not isinstance(df_rreo_9, pd.DataFrame)
+        or df_rreo_9.empty
+        or not _RREO_BO_COLS.issubset(df_rreo_9.columns)
+    ):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00040',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 1 e/ou Anexo 9 indisponíveis ou incompletos',
+        }]), pd.DataFrame()
+
+    m_prev_a1 = (
+        (df_rreo_1['cod_conta'].astype(str).str.strip() == cod_a1)
+        & (df_rreo_1['coluna'].astype(str).str.strip() == col_prev_a1)
+    )
+    m_rec_a1 = (
+        (df_rreo_1['cod_conta'].astype(str).str.strip() == cod_a1)
+        & (df_rreo_1['coluna'].astype(str).str.strip() == col_rec_a1)
+    )
+    m_prev_a9 = (
+        (df_rreo_9['cod_conta'].astype(str).str.strip() == cod_a9)
+        & (df_rreo_9['coluna'].astype(str).str.strip() == col_prev_a9)
+    )
+    m_rec_a9 = (
+        (df_rreo_9['cod_conta'].astype(str).str.strip() == cod_a9)
+        & (df_rreo_9['coluna'].astype(str).str.strip() == col_rec_a9)
+    )
+
+    tem_a1 = m_prev_a1.any() and m_rec_a1.any()
+    tem_a9 = m_prev_a9.any() and m_rec_a9.any()
+
+    # Sem qualquer linha desta natureza nos dois anexos → ente sem operações de crédito a cruzar (OK).
+    if not tem_a1 and not tem_a9:
+        d3_00040_t = pd.DataFrame([
+            {
+                'detalhe': 'Sem Receitas de Operações de Crédito nos Anexos 1 e 9 (nada a comparar)',
+                'previsao_atualizada': 0.0,
+                'receitas_realizadas': 0.0,
+            },
+        ])
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00040',
+            'Resposta': 'OK',
+            'Descrição da Dimensão': desc,
+            'Nota': 1.00,
+            'OBS': (
+                f'{obs} Ente sem registros desta receita nos anexos — verificação dispensada (OK).'
+            ),
+        }]), d3_00040_t
+
+    if not (tem_a1 and tem_a9):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00040',
+            'Resposta': 'ERRO',
+            'Descrição da Dimensão': desc,
+            'Nota': 0.00,
+            'OBS': (
+                'Cruzamento incompleto: A1 exige ReceitasDeOperacoesDeCredito em "PREVISÃO ATUALIZADA (a)" '
+                'e "Até o Bimestre (c)"; A9 exige RREO9ReceitasDeOperacoesDeCredito em '
+                '"PREVISÃO ATUALIZADA (a)" e "RECEITAS REALIZADAS (b)". '
+                'Um dos anexos tem as linhas e o outro não — revisar demonstrativo.'
+            ),
+        }]), pd.DataFrame()
+
+    prev_a1 = float(pd.to_numeric(df_rreo_1.loc[m_prev_a1, 'valor'], errors='coerce').fillna(0).sum())
+    rec_a1 = float(pd.to_numeric(df_rreo_1.loc[m_rec_a1, 'valor'], errors='coerce').fillna(0).sum())
+    prev_a9 = float(pd.to_numeric(df_rreo_9.loc[m_prev_a9, 'valor'], errors='coerce').fillna(0).sum())
+    rec_a9 = float(pd.to_numeric(df_rreo_9.loc[m_rec_a9, 'valor'], errors='coerce').fillna(0).sum())
+
+    dif_prev = prev_a9 - prev_a1
+    dif_rec = rec_a9 - rec_a1
+
+    tolerancia = 0.01
+    condicao_erro = (
+        not np.isclose(dif_prev, 0.0, atol=tolerancia, rtol=0.0)
+        or not np.isclose(dif_rec, 0.0, atol=tolerancia, rtol=0.0)
+    )
+    resposta = 'ERRO' if condicao_erro else 'OK'
+    nota = 0.00 if condicao_erro else 1.00
+
+    d3_00040_t = pd.DataFrame([
+        {
+            'detalhe': 'Receitas de Operações de Crédito — RREO Anexo 1',
+            'previsao_atualizada': prev_a1,
+            'receitas_realizadas': rec_a1,
+        },
+        {
+            'detalhe': 'Receitas de Operações de Crédito — RREO Anexo 9',
+            'previsao_atualizada': prev_a9,
+            'receitas_realizadas': rec_a9,
+        },
+        {
+            'detalhe': 'Diferença (Anexo 9 − Anexo 1)',
+            'previsao_atualizada': dif_prev,
+            'receitas_realizadas': dif_rec,
+        },
+    ])
+
+    d3_00040 = pd.DataFrame([{
+        'Dimensão': 'D3_00040',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': obs,
+    }])
+    return d3_00040, d3_00040_t
+
+
+def d3_00044(df_rreo_3, df_rgf_1e):
+    """
+    CAPAG — Igualdade de Transferências da União relativas à remuneração dos agentes
+    comunitários de saúde e de combate às endemias (CF, art. 198, §11 — VII):
+    RREO Anexo 3 × RGF Anexo 1 (Executivo).
+
+    Filtros por demonstrativo (API Siconfi):
+    - RREO Anexo 3: coluna = 'TOTAL (ÚLTIMOS 12 MESES)',
+                    cod_conta = 'RREO3TransferenciasDaUniaoRelativasARemuneracaoDosAgentesComunitariosDeSaude'
+    - RGF Anexo 1 (E): coluna = 'Valor',
+                       cod_conta = 'TransferenciasDaUniaoRelativasARemuneracaoDosAgentesComunitariosDeSaude'
+
+    Resultado OK se os dois valores forem iguais (tolerância de R$ 0,01).
+    """
+    desc = (
+        'Verifica a igualdade das Transferências da União relativas à remuneração dos '
+        'Agentes Comunitários de Saúde e de Combate às Endemias (CF, art. 198, §11 — VII) '
+        'entre o RREO Anexo 3 e o RGF Anexo 1 (Executivo)'
+    )
+    obs = (
+        'RREO Anexo 3: coluna TOTAL (ÚLTIMOS 12 MESES) / '
+        'cod_conta RREO3TransferenciasDaUniaoRelativasARemuneracaoDosAgentesComunitariosDeSaude; '
+        'RGF Anexo 1 (E): coluna Valor / '
+        'cod_conta TransferenciasDaUniaoRelativasARemuneracaoDosAgentesComunitariosDeSaude.'
+    )
+    need = {'coluna', 'cod_conta', 'valor'}
+
+    def _df_ok(df):
+        return (
+            df is not None
+            and isinstance(df, pd.DataFrame)
+            and not df.empty
+            and need.issubset(df.columns)
+        )
+
+    def _soma(df, cod_conta, nome_coluna):
+        m_cc = df['cod_conta'].astype(str).str.strip() == str(cod_conta).strip()
+        m_col = df['coluna'].astype(str).str.strip() == str(nome_coluna).strip()
+        vals = df.loc[m_cc & m_col, 'valor']
+        return float(pd.to_numeric(vals, errors='coerce').fillna(0).sum())
+
+    if not _df_ok(df_rreo_3):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00044',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 3 indisponível ou incompleto (coluna, cod_conta, valor)',
+        }]), pd.DataFrame()
+
+    if not _df_ok(df_rgf_1e):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00044',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RGF Anexo 1 (Executivo) indisponível ou incompleto (coluna, cod_conta, valor)',
+        }]), pd.DataFrame()
+
+    cod_rreo3 = 'RREO3TransferenciasDaUniaoRelativasARemuneracaoDosAgentesComunitariosDeSaude'
+    col_rreo3 = 'TOTAL (ÚLTIMOS 12 MESES)'
+    cod_rgf1e = 'TransferenciasDaUniaoRelativasARemuneracaoDosAgentesComunitariosDeSaude'
+    col_rgf1e = 'Valor'
+
+    linha_rreo3 = (
+        (df_rreo_3['cod_conta'].astype(str).str.strip() == cod_rreo3)
+        & (df_rreo_3['coluna'].astype(str).str.strip() == col_rreo3)
+    )
+    linha_rgf1e = (
+        (df_rgf_1e['cod_conta'].astype(str).str.strip() == cod_rgf1e)
+        & (df_rgf_1e['coluna'].astype(str).str.strip() == col_rgf1e)
+    )
+    if not linha_rreo3.any() or not linha_rgf1e.any():
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00044',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'Linha de transferências para Agentes Comunitários ausente no RREO 3 e/ou RGF 1',
+        }]), pd.DataFrame()
+
+    v_rreo3 = _soma(df_rreo_3, cod_rreo3, col_rreo3)
+    v_rgf1e = _soma(df_rgf_1e, cod_rgf1e, col_rgf1e)
+
+    tolerancia = 0.01
+    condicao_erro = not np.isclose(v_rreo3, v_rgf1e, atol=tolerancia, rtol=0.0)
+    resposta = 'ERRO' if condicao_erro else 'OK'
+    nota = 0.00 if condicao_erro else 1.00
+
+    d3_00044_t = pd.DataFrame([
+        {
+            'detalhe': 'RREO Anexo 3 — Transf. da União / Agentes Comunitários (TOTAL ÚLTIMOS 12 MESES)',
+            'valor': v_rreo3,
+        },
+        {
+            'detalhe': 'RGF Anexo 1 (E) — Agentes Comunitários com Recursos Vinculados (TOTAL ÚLTIMOS 12 MESES (a))',
+            'valor': v_rgf1e,
+        },
+        {
+            'detalhe': 'Diferença (RREO 3 − RGF 1 E)',
+            'valor': round(v_rreo3 - v_rgf1e, 2),
+        },
+    ])
+
+    d3_00044 = pd.DataFrame([{
+        'Dimensão': 'D3_00044',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': obs,
+    }])
+    return d3_00044, d3_00044_t
+
+
+def d3_00047(df_rreo_4, df_rreo_6):
+    """
+    Ranking 2025 oficial — D3_00047.
+    Igualdade da Reserva Orçamentária do RPPS (Previdenciário) entre o
+    RREO Anexo 4 e o RREO Anexo 6.
+
+    Filtros (API Siconfi), alinhados à D3_00034 para os anexos 4 e 6:
+    - Anexo 4 — quadro «RESERVA ORÇAMENTÁRIA DO RPPS»:
+        coluna = PREVISÃO ORÇAMENTÁRIA,
+        cod_conta = ReservaOrcamentariaDoRPPSPrevidenciario
+    - Anexo 6 — quadro «Informações Adicionais» (Reserva Orçamentária do RPPS):
+        coluna = PREVISÃO ORÇAMENTÁRIA,
+        cod_conta = ReservaOrcamentariaDoRPPSPrevidenciario
+
+    Regra: valor Anexo 4 = valor Anexo 6 (tolerância R$ 0,01).
+    """
+    desc = (
+        'Igualdade da Reserva Orçamentária do RPPS (Previdenciário) '
+        'entre o RREO Anexo 4 e o RREO Anexo 6'
+    )
+    obs = (
+        'Anexo 4: coluna PREVISÃO ORÇAMENTÁRIA / cod_conta ReservaOrcamentariaDoRPPSPrevidenciario '
+        '(quadro RESERVA ORÇAMENTÁRIA DO RPPS); '
+        'Anexo 6: coluna PREVISÃO ORÇAMENTÁRIA / cod_conta ReservaOrcamentariaDoRPPSPrevidenciario '
+        '(quadro Informações Adicionais — Reserva Orçamentária do RPPS).'
+    )
+    need = {'coluna', 'cod_conta', 'valor'}
+    cod = 'ReservaOrcamentariaDoRPPSPrevidenciario'
+    col = 'PREVISÃO ORÇAMENTÁRIA'
+
+    def _df_ok(df):
+        return (
+            df is not None
+            and isinstance(df, pd.DataFrame)
+            and not df.empty
+            and need.issubset(df.columns)
+        )
+
+    def _soma_e_linhas(df):
+        m_cc = df['cod_conta'].astype(str).str.strip() == cod
+        m_col = df['coluna'].astype(str).str.strip() == col.strip()
+        sub = df.loc[m_cc & m_col]
+        v = float(pd.to_numeric(sub['valor'], errors='coerce').fillna(0).sum())
+        n = int(len(sub))
+        return v, n
+
+    if not _df_ok(df_rreo_4):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00047',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 4 indisponível ou incompleto (coluna, cod_conta, valor)',
+        }]), pd.DataFrame()
+
+    if not _df_ok(df_rreo_6):
+        return pd.DataFrame([{
+            'Dimensão': 'D3_00047',
+            'Resposta': 'N/A',
+            'Descrição da Dimensão': desc,
+            'Nota': None,
+            'OBS': 'RREO Anexo 6 indisponível ou incompleto (coluna, cod_conta, valor)',
+        }]), pd.DataFrame()
+
+    v4, n4 = _soma_e_linhas(df_rreo_4)
+    v6, n6 = _soma_e_linhas(df_rreo_6)
+
+    dif = v4 - v6
+    tolerancia = 0.01
+    condicao_erro = not np.isclose(dif, 0.0, atol=tolerancia, rtol=0.0)
+    resposta = 'ERRO' if condicao_erro else 'OK'
+    nota = 0.00 if condicao_erro else 1.00
+
+    d3_00047_t = pd.DataFrame([
+        {
+            'detalhe': 'Anexo 4 — ReservaOrcamentariaDoRPPSPrevidenciario (PREVISÃO ORÇAMENTÁRIA)',
+            'valor': v4,
+        },
+        {
+            'detalhe': 'Anexo 6 — ReservaOrcamentariaDoRPPSPrevidenciario (PREVISÃO ORÇAMENTÁRIA)',
+            'valor': v6,
+        },
+        {
+            'detalhe': 'Diferença (Anexo 4 − Anexo 6)',
+            'valor': round(dif, 2),
+        },
+    ])
+
+    obs_out = obs
+    ausencias = []
+    if n4 == 0:
+        ausencias.append('Anexo 4 sem linha no filtro (PREVISÃO ORÇAMENTÁRIA + ReservaOrcamentariaDoRPPSPrevidenciario)')
+    if n6 == 0:
+        ausencias.append('Anexo 6 sem linha no filtro (PREVISÃO ORÇAMENTÁRIA + ReservaOrcamentariaDoRPPSPrevidenciario)')
+    if ausencias:
+        obs_out = obs + ' Ausências parciais tratadas como zero: ' + '; '.join(ausencias) + '.'
+
+    d3_00047 = pd.DataFrame([{
+        'Dimensão': 'D3_00047',
+        'Resposta': resposta,
+        'Descrição da Dimensão': desc,
+        'Nota': nota,
+        'OBS': obs_out,
+    }])
+    return d3_00047, d3_00047_t
+
+
 ##################################################################
 ##################################################################
 ##################################################################
@@ -1674,7 +3561,23 @@ def _d3_00029_nd_mask(nd: pd.Series) -> pd.Series:
 ##################################################################
 
 
-_REMOVED_ANALYSES_ARITY = {'d3_00011': 2, 'd3_00012': 2, 'd3_00013': 2, 'd3_00017': 2, 'd3_00021': 2, 'd3_00026': 2, 'd3_00027': 2, 'd3_00028': 2, 'd3_00029': 2, 'd3_00030': 2, 'd3_00032': 2, 'd3_00033': 2, 'd3_00034': 2, 'd3_00035': 2, 'd3_00037': 2, 'd3_00038': 2, 'd3_00039': 2, 'd3_00040': 2, 'd3_00044': 2, 'd3_00045': 2, 'd3_00046': 2, 'd3_00048': 2, 'd3_00049': 2, 'd3_00050': 2, 'd3_00051': 2, 'd3_00052': 2, 'd3_00054': 2, 'd3_00055': 2, 'd3_00056': 2}
+_REMOVED_ANALYSES_ARITY = {
+    'd3_00011': 2,
+    'd3_00012': 2,
+    'd3_00013': 2,
+    'd3_00021': 2,
+    'd3_00029': 2,
+    'd3_00045': 2,
+    'd3_00046': 2,
+    'd3_00048': 2,
+    'd3_00049': 2,
+    'd3_00050': 2,
+    'd3_00051': 2,
+    'd3_00052': 2,
+    'd3_00054': 2,
+    'd3_00055': 2,
+    'd3_00056': 2,
+}
 
 
 def _removed_analysis_result(code):

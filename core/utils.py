@@ -106,6 +106,64 @@ def convert_df_to_excel(df: pd.DataFrame) -> bytes:
     return output.getvalue()
 
 
+def prepare_msc_12_13_for_excel(df: pd.DataFrame) -> pd.DataFrame:
+    """Prepara a MSC corrente/de encerramento para uma exportação estável.
+
+    A API identifica tanto a MSCC de dezembro quanto a MSCE com mês 12.
+    Para leitura humana, a matriz de encerramento é apresentada como mês 13.
+    A cópia evita alterar o DataFrame utilizado pelas regras de análise.
+    """
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.DataFrame(columns=getattr(df, "columns", None))
+    if "mes_referencia" not in df.columns:
+        raise ValueError("A MSC não possui a coluna 'mes_referencia'.")
+
+    colunas_tipo = [
+        coluna
+        for coluna in ("tipo_matriz", "co_tipo_matriz")
+        if coluna in df.columns
+    ]
+    if not colunas_tipo:
+        raise ValueError(
+            "A MSC não possui as colunas 'tipo_matriz' ou 'co_tipo_matriz'."
+        )
+
+    out = df.copy()
+    eh_mscc = pd.Series(False, index=out.index)
+    eh_msce = pd.Series(False, index=out.index)
+    for coluna in colunas_tipo:
+        tipo = out[coluna].astype("string").str.strip().str.upper()
+        eh_mscc |= tipo.eq("MSCC").fillna(False)
+        eh_msce |= tipo.eq("MSCE").fillna(False)
+
+    # O mês 13 é a representação semântica da matriz de encerramento.
+    out.loc[eh_msce, "mes_referencia"] = 13
+    mes = pd.to_numeric(out["mes_referencia"], errors="coerce")
+    out = out.loc[(eh_mscc & mes.eq(12)) | (eh_msce & mes.eq(13))].copy()
+    return out.reset_index(drop=True)
+
+
+def convert_msc_12_13_to_excel(df: pd.DataFrame) -> bytes:
+    """Converte somente MSCC/12 e MSCE/13 para um arquivo Excel."""
+    msc = prepare_msc_12_13_for_excel(df)
+    if msc.empty:
+        raise ValueError("Não há dados da MSC dos meses 12 e 13 para exportar.")
+
+    # O Excel comporta 1.048.576 linhas por aba; uma delas é o cabeçalho.
+    if len(msc) > 1_048_575:
+        raise ValueError(
+            "A MSC dos meses 12 e 13 excede o limite de linhas de uma aba do Excel."
+        )
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        msc.to_excel(writer, index=False, sheet_name="MSC_Consolidada_12_13")
+        worksheet = writer.sheets["MSC_Consolidada_12_13"]
+        worksheet.freeze_panes = "A2"
+        worksheet.auto_filter.ref = worksheet.dimensions
+    return output.getvalue()
+
+
 
 
 # ═══════════════════════════════════════════════════════════════
