@@ -71,6 +71,7 @@ def setup_page(
     logo_path: str = "assets/logo-mark.svg",
     active_nav: str | None = None,
     show_top_nav: bool = True,
+    sidebar_state: str = "collapsed",
 ) -> None:
     # Favicon da aba: Streamlit aceita o mesmo que st.image (incl. SVG em versões recentes).
     # Antes usávamos emoji quando era .svg — aí a aba não mostrava o logo.
@@ -84,7 +85,9 @@ def setup_page(
         page_title=page_title,
         page_icon=resolved_icon,
         layout=layout,
-        initial_sidebar_state="collapsed",
+        # Cada página decide se precisa da barra lateral. O modo ``auto`` é
+        # útil no fluxo analítico: abre em telas largas e recolhe no celular.
+        initial_sidebar_state=sidebar_state,
     )
 
     try:

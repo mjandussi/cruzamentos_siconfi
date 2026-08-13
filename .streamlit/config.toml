@@ -11,3 +11,8 @@ headless = true
 
 [browser]
 gatherUsageStats = false
+
+[client]
+# A navegação do produto já existe no cabeçalho. A sidebar fica livre para o
+# progresso contextual da validação, sem repetir o menu automático de páginas.
+showSidebarNavigation = false

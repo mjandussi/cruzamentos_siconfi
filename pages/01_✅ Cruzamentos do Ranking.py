@@ -61,6 +61,7 @@ setup_page(
     page_title="CRUZAMENTOS SICONFI - Validação on-line",
     logo_path="assets/logo-mark.svg",
     show_top_nav=False,
+    sidebar_state="auto",
 )
 if not is_authed():
     st.switch_page("app.py")
@@ -435,13 +436,28 @@ def main():
         and st.session_state.get("analise_ente") == ente
         and st.session_state.get("analise_ano") == ano
     )
-    stepper_slot = st.empty()
     _stepper_labels = [
         "Selecionar ente e exercício",
         "Validar entregas",
         "Processar cruzamentos",
         "Revisar evidências",
     ]
+
+    # O progresso fica na barra lateral para continuar visível enquanto o
+    # usuário percorre extratos, resultados e evidências no conteúdo principal.
+    with st.sidebar:
+        with st.container(key="analysis_sidebar_progress"):
+            st.markdown(
+                """
+                <div class="analysis-sidebar-heading">
+                  <span class="analysis-sidebar-heading__eyebrow">Fluxo atual</span>
+                  <strong>Etapas da análise</strong>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.caption(f"{ente} · exercício {ano}")
+            stepper_slot = st.empty()
 
     def _atualizar_stepper(*, processing=False, results_ready=False):
         with stepper_slot.container():

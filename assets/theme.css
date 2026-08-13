@@ -144,29 +144,104 @@ section[data-testid="stMain"] {
   background: transparent !important;
 }
 
-/* Esconder sidebar */
-[data-testid="stSidebar"],
-[data-testid="stHeader"],
+/* Oculta apenas o chrome técnico. O cabeçalho preserva o controle acessível
+   que abre/fecha a barra lateral usada durante a validação. */
 [data-testid="stToolbar"],
 [data-testid="stDecoration"],
-[data-testid="collapsedControl"],
-[data-testid="stSidebarCollapsedControl"],
-[data-testid="stSidebarNavCollapseButton"],
-div[data-testid="stDecoration"] + div button[kind="header"],
-button[aria-label="View sidebar"],
-button[title="View sidebar"],
-button[aria-label="Open sidebar"],
-button[title="Open sidebar"],
-button[aria-label="Close sidebar"],
-button[title="Close sidebar"] {
+button[aria-label="Main menu"],
+button[title="Main menu"] {
   display: none !important;
 }
 
-/* Header padrão Streamlit */
+/* Header transparente: mantém somente os controles da sidebar. */
+[data-testid="stHeader"],
 .stApp > header {
-  height: 0 !important;
-  display: none !important;
   background: transparent !important;
+}
+
+/* Sidebar contextual */
+[data-testid="stSidebar"] {
+  border-right: 1px solid rgba(194, 85, 18, 0.28);
+  background:
+    radial-gradient(circle at top left, rgba(194, 85, 18, 0.14), transparent 38%),
+    linear-gradient(180deg, #141920 0%, #0a0d12 100%) !important;
+}
+
+[data-testid="stSidebar"] > div:first-child {
+  padding-top: 1rem;
+}
+
+[class*="st-key-analysis_sidebar_progress"] {
+  position: sticky;
+  top: 1rem;
+  z-index: 2;
+}
+
+.analysis-sidebar-heading {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0 0 0.15rem;
+}
+
+.analysis-sidebar-heading__eyebrow {
+  color: var(--link-hover);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.analysis-sidebar-heading strong {
+  color: var(--text-primary);
+  font-size: 1.05rem;
+}
+
+[data-testid="stSidebar"] [class*="st-key-analysis_sidebar_progress"] p {
+  color: var(--text-secondary);
+}
+
+[data-testid="stSidebar"] .analysis-stepper {
+  margin: 0.8rem 0 0;
+}
+
+[data-testid="stSidebar"] .analysis-stepper ol {
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+}
+
+[data-testid="stSidebar"] .analysis-step {
+  position: relative;
+  min-height: 3rem;
+  padding: 0.65rem 0.7rem;
+}
+
+/* Um conector discreto reforça a leitura de sequência sem adicionar widgets. */
+[data-testid="stSidebar"] .analysis-step:not(:last-child)::after {
+  position: absolute;
+  top: calc(100% + 1px);
+  left: 1.55rem;
+  width: 1px;
+  height: 0.6rem;
+  background: rgba(148, 163, 184, 0.28);
+  content: "";
+}
+
+[data-testid="stSidebar"] .analysis-step--complete:not(:last-child)::after {
+  background: var(--success-border);
+}
+
+[data-testid="stSidebar"] .analysis-step__content {
+  overflow: visible;
+  font-size: 0.84rem;
+  text-overflow: clip;
+}
+
+[data-testid="stSidebarNavCollapseButton"] button,
+[data-testid="stSidebarCollapsedControl"] button {
+  border: 1px solid rgba(194, 85, 18, 0.36) !important;
+  border-radius: var(--radius-sm) !important;
+  background: rgba(13, 17, 23, 0.88) !important;
+  color: var(--text-primary) !important;
 }
 
 /* ===============================================
@@ -1992,6 +2067,12 @@ div[data-baseweb="popover"] li[role="option"]:hover {
   .block-container {
     padding-top: 1.25rem !important;
     padding-bottom: 2rem !important;
+  }
+
+  /* No celular a sidebar funciona como painel sobreposto; o conteúdo interno
+     volta ao fluxo normal para permanecer rolável em telas baixas. */
+  [class*="st-key-analysis_sidebar_progress"] {
+    position: static;
   }
 
   .app-brandbar {
